@@ -14,8 +14,10 @@ export type Database = {
           content: string
           created_at: string | null
           date: string
+          emotions: string[] | null
           id: string
           mood_score: number | null
+          topics: string[] | null
           updated_at: string | null
           user_id: string
         }
@@ -23,8 +25,10 @@ export type Database = {
           content: string
           created_at?: string | null
           date: string
+          emotions?: string[] | null
           id?: string
           mood_score?: number | null
+          topics?: string[] | null
           updated_at?: string | null
           user_id: string
         }
@@ -32,8 +36,10 @@ export type Database = {
           content?: string
           created_at?: string | null
           date?: string
+          emotions?: string[] | null
           id?: string
           mood_score?: number | null
+          topics?: string[] | null
           updated_at?: string | null
           user_id?: string
         }

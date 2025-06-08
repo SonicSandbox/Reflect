@@ -3,7 +3,16 @@
 import { createClient } from "../../../../supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Home, ArrowLeft } from "lucide-react";
+import { Home, ArrowLeft, Edit, RotateCcw, Save, X } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { User } from "@supabase/supabase-js";
@@ -22,6 +31,10 @@ export default function HomePage() {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedEntry, setSelectedEntry] = useState<JournalEntry | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedEntry, setEditedEntry] = useState<JournalEntry | null>(null);
+  const [redoDialogOpen, setRedoDialogOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const supabase = createClient();
 
   useEffect(() => {
@@ -42,6 +55,31 @@ export default function HomePage() {
 
     getUser();
   }, [supabase]);
+
+  // Add effect to refresh entries when page becomes visible
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && user) {
+        console.log("Page became visible, refreshing entries...");
+        fetchEntries(user.id);
+      }
+    };
+
+    const handleFocus = () => {
+      if (user) {
+        console.log("Window focused, refreshing entries...");
+        fetchEntries(user.id);
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [user, supabase]);
 
   const fetchEntries = async (userId: string) => {
     try {
@@ -84,6 +122,140 @@ export default function HomePage() {
 
   const handleBackToList = () => {
     setSelectedEntry(null);
+    setIsEditing(false);
+    setEditedEntry(null);
+  };
+
+  const handleEditEntry = () => {
+    if (selectedEntry) {
+      setEditedEntry({ ...selectedEntry });
+      setIsEditing(true);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setEditedEntry(null);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editedEntry || !user) {
+      console.log("Save failed: missing editedEntry or user", {
+        editedEntry: !!editedEntry,
+        user: !!user,
+      });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      console.log("Saving entry with ID:", editedEntry.id);
+      console.log("Updated data:", {
+        content: editedEntry.content,
+        mood_score: editedEntry.mood_score,
+        follow_up_question: editedEntry.follow_up_question || null,
+        follow_up_response: editedEntry.follow_up_response || null,
+        emotions:
+          editedEntry.emotions && editedEntry.emotions.length > 0
+            ? editedEntry.emotions
+            : null,
+        topics:
+          editedEntry.topics && editedEntry.topics.length > 0
+            ? editedEntry.topics
+            : null,
+      });
+
+      const { data, error } = await supabase
+        .from("journal_entries")
+        .update({
+          content: editedEntry.content,
+          mood_score: editedEntry.mood_score,
+          follow_up_question: editedEntry.follow_up_question || null,
+          follow_up_response: editedEntry.follow_up_response || null,
+          emotions:
+            editedEntry.emotions && editedEntry.emotions.length > 0
+              ? editedEntry.emotions
+              : null,
+          topics:
+            editedEntry.topics && editedEntry.topics.length > 0
+              ? editedEntry.topics
+              : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", editedEntry.id)
+        .select();
+
+      if (error) {
+        console.error("Error updating entry:", error);
+        alert(`Failed to save: ${error.message}`);
+        return;
+      }
+
+      console.log("Entry updated successfully:", data);
+
+      // Update the selected entry and entries list
+      setSelectedEntry(editedEntry);
+      setEntries((prev) =>
+        prev.map((entry) =>
+          entry.id === editedEntry.id ? editedEntry : entry,
+        ),
+      );
+      setIsEditing(false);
+      setEditedEntry(null);
+
+      console.log("State updated, should exit edit mode");
+    } catch (error) {
+      console.error("Error saving entry:", error);
+      alert(
+        `Failed to save: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRedoJournal = async () => {
+    if (!selectedEntry || !user) return;
+
+    try {
+      // Delete the current entry
+      const { error } = await supabase
+        .from("journal_entries")
+        .delete()
+        .eq("id", selectedEntry.id);
+
+      if (error) {
+        console.error("Error deleting entry:", error);
+        return;
+      }
+
+      // Redirect to dashboard to start new journal
+      window.location.href = "/dashboard";
+    } catch (error) {
+      console.error("Error redoing journal:", error);
+    }
+  };
+
+  const addTag = (type: "emotions" | "topics", tag: string) => {
+    if (!editedEntry || !tag.trim()) return;
+
+    const currentTags = editedEntry[type] || [];
+    if (!currentTags.includes(tag.trim())) {
+      setEditedEntry({
+        ...editedEntry,
+        [type]: [...currentTags, tag.trim()],
+      });
+    }
+  };
+
+  const removeTag = (type: "emotions" | "topics", tagToRemove: string) => {
+    if (!editedEntry) return;
+
+    const currentTags = editedEntry[type] || [];
+    setEditedEntry({
+      ...editedEntry,
+      [type]: currentTags.filter((tag) => tag !== tagToRemove),
+    });
   };
 
   if (loading) {
@@ -123,26 +295,60 @@ export default function HomePage() {
         {/* Back Button */}
         <div className="absolute top-4 left-4 z-10">
           <Button
-            onClick={handleBackToList}
+            onClick={isEditing ? handleCancelEdit : handleBackToList}
             variant="ghost"
             size="icon"
             className="rounded-full bg-slate-800/50 hover:bg-slate-700/50 text-slate-300"
           >
-            <ArrowLeft className="h-5 w-5" />
+            {isEditing ? (
+              <X className="h-5 w-5" />
+            ) : (
+              <ArrowLeft className="h-5 w-5" />
+            )}
           </Button>
         </div>
 
-        {/* Home Button */}
-        <div className="absolute top-4 right-4 z-10">
-          <Link href="/dashboard">
+        {/* Action Buttons */}
+        <div className="absolute top-4 right-4 z-10 flex gap-2">
+          {!isEditing ? (
+            <>
+              <Button
+                onClick={handleEditEntry}
+                variant="ghost"
+                size="icon"
+                className="rounded-full bg-slate-800/50 hover:bg-slate-700/50 text-slate-300"
+              >
+                <Edit className="h-5 w-5" />
+              </Button>
+              <Button
+                onClick={() => setRedoDialogOpen(true)}
+                variant="ghost"
+                size="icon"
+                className="rounded-full bg-slate-800/50 hover:bg-slate-700/50 text-slate-300"
+              >
+                <RotateCcw className="h-5 w-5" />
+              </Button>
+              <Link href="/dashboard">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-full bg-slate-800/50 hover:bg-slate-700/50 text-slate-300"
+                >
+                  <Home className="h-5 w-5" />
+                </Button>
+              </Link>
+            </>
+          ) : (
             <Button
+              onClick={handleSaveEdit}
+              disabled={saving}
               variant="ghost"
               size="icon"
-              className="rounded-full bg-slate-800/50 hover:bg-slate-700/50 text-slate-300"
+              className="rounded-full bg-green-600/50 hover:bg-green-500/50 text-white"
             >
-              <Home className="h-5 w-5" />
+              <Save className="h-5 w-5" />
             </Button>
-          </Link>
+          )}
         </div>
 
         {/* Entry Detail View */}
@@ -165,93 +371,254 @@ export default function HomePage() {
                 </div>
               </div>
               <h2 className="text-2xl font-light text-slate-200 mb-2">
-                Journal Entry
+                {isEditing ? "Edit Journal Entry" : "Journal Entry"}
               </h2>
               <p className="text-slate-400 text-sm">
                 {formatDate(selectedEntry.date).dayOfWeek},{" "}
                 {formatDate(selectedEntry.date).formattedDate}
               </p>
-              {selectedEntry.mood_score && (
-                <p className="text-slate-400 text-sm mt-1">
-                  Mood Score: {selectedEntry.mood_score}/10
-                </p>
+              {isEditing ? (
+                <div className="mt-4">
+                  <Label className="text-slate-400 text-sm">
+                    Mood Score (1-10):
+                  </Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={editedEntry?.mood_score || ""}
+                    onChange={(e) =>
+                      setEditedEntry((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              mood_score: parseInt(e.target.value) || null,
+                            }
+                          : null,
+                      )
+                    }
+                    className="w-20 mx-auto mt-1 bg-slate-800/60 border-slate-600 text-slate-200"
+                  />
+                </div>
+              ) : (
+                selectedEntry.mood_score && (
+                  <p className="text-slate-400 text-sm mt-1">
+                    Mood Score: {selectedEntry.mood_score}/10
+                  </p>
+                )
               )}
             </div>
 
             <div className="space-y-4">
               <div className="bg-slate-800/60 rounded-xl p-4 text-left">
                 <p className="text-slate-400 text-xs mb-2">Journal Entry:</p>
-                <p className="text-slate-300 text-sm leading-relaxed">
-                  {selectedEntry.content}
-                </p>
+                {isEditing ? (
+                  <Textarea
+                    value={editedEntry?.content || ""}
+                    onChange={(e) =>
+                      setEditedEntry((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              content: e.target.value,
+                            }
+                          : null,
+                      )
+                    }
+                    className="bg-slate-700/60 border-slate-600 text-slate-200 min-h-[100px]"
+                    placeholder="Enter your journal entry..."
+                  />
+                ) : (
+                  <p className="text-slate-300 text-sm leading-relaxed">
+                    {selectedEntry.content || "No content available"}
+                  </p>
+                )}
               </div>
 
-              {selectedEntry.follow_up_question && (
-                <div className="bg-slate-800/60 rounded-xl p-4 text-left">
-                  <p className="text-slate-400 text-xs mb-2">
-                    Follow-up Question:
-                  </p>
+              <div className="bg-slate-800/60 rounded-xl p-4 text-left">
+                <p className="text-slate-400 text-xs mb-2">
+                  Follow-up Question:
+                </p>
+                {isEditing ? (
+                  <Textarea
+                    value={editedEntry?.follow_up_question || ""}
+                    onChange={(e) =>
+                      setEditedEntry((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              follow_up_question: e.target.value,
+                            }
+                          : null,
+                      )
+                    }
+                    className="bg-slate-700/60 border-slate-600 text-slate-200 mb-3"
+                    placeholder="Enter follow-up question..."
+                  />
+                ) : (
                   <p className="text-slate-300 text-sm leading-relaxed mb-3">
-                    {selectedEntry.follow_up_question}
+                    {selectedEntry.follow_up_question ||
+                      "No follow-up question"}
                   </p>
-                  {selectedEntry.follow_up_response && (
-                    <>
-                      <p className="text-slate-400 text-xs mb-2">
-                        Your Response:
-                      </p>
-                      <p className="text-slate-300 text-sm leading-relaxed">
-                        {selectedEntry.follow_up_response}
-                      </p>
-                    </>
-                  )}
-                </div>
-              )}
+                )}
+                <p className="text-slate-400 text-xs mb-2">Your Response:</p>
+                {isEditing ? (
+                  <Textarea
+                    value={editedEntry?.follow_up_response || ""}
+                    onChange={(e) =>
+                      setEditedEntry((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              follow_up_response: e.target.value,
+                            }
+                          : null,
+                      )
+                    }
+                    className="bg-slate-700/60 border-slate-600 text-slate-200"
+                    placeholder="Enter your response..."
+                  />
+                ) : (
+                  <p className="text-slate-300 text-sm leading-relaxed">
+                    {selectedEntry.follow_up_response ||
+                      "No response available"}
+                  </p>
+                )}
+              </div>
 
               {/* Tags Section */}
-              {(selectedEntry.emotions?.length ||
-                selectedEntry.topics?.length) && (
-                <div className="bg-slate-800/60 rounded-xl p-4 text-left">
-                  <p className="text-slate-400 text-xs mb-3">Tags:</p>
+              <div className="bg-slate-800/60 rounded-xl p-4 text-left">
+                <p className="text-slate-400 text-xs mb-3">Tags:</p>
 
-                  {/* Emotions */}
-                  {selectedEntry.emotions &&
-                    selectedEntry.emotions.length > 0 && (
-                      <div className="mb-3">
-                        <p className="text-slate-500 text-xs mb-2">Emotions:</p>
-                        <div className="flex flex-wrap gap-2">
-                          {selectedEntry.emotions.map((emotion, index) => (
-                            <span
-                              key={index}
-                              className="px-2 py-1 bg-blue-500/20 text-blue-300 text-xs rounded-full"
-                            >
-                              {emotion}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                  {/* Topics */}
-                  {selectedEntry.topics && selectedEntry.topics.length > 0 && (
-                    <div>
-                      <p className="text-slate-500 text-xs mb-2">Topics:</p>
-                      <div className="flex flex-wrap gap-2">
-                        {selectedEntry.topics.map((topic, index) => (
-                          <span
-                            key={index}
-                            className="px-2 py-1 bg-green-500/20 text-green-300 text-xs rounded-full"
+                {/* Emotions */}
+                <div className="mb-3">
+                  <p className="text-slate-500 text-xs mb-2">Emotions:</p>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {(isEditing
+                      ? editedEntry?.emotions
+                      : selectedEntry.emotions
+                    )?.map((emotion, index) => (
+                      <span
+                        key={index}
+                        className="inline-flex items-center gap-1 px-2 py-1 bg-blue-500/20 text-blue-300 text-xs rounded-full"
+                      >
+                        {emotion}
+                        {isEditing && (
+                          <button
+                            onClick={() => removeTag("emotions", emotion)}
+                            className="ml-1 text-blue-400 hover:text-blue-200 text-xs"
                           >
-                            {topic}
-                          </span>
-                        ))}
-                      </div>
+                            ×
+                          </button>
+                        )}
+                      </span>
+                    )) || (
+                      <span className="text-slate-500 text-xs">
+                        No emotions tagged
+                      </span>
+                    )}
+                  </div>
+                  {isEditing && (
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Add emotion tag..."
+                        className="flex-1 bg-slate-700/60 border-slate-600 text-slate-200 text-xs h-8"
+                        onKeyPress={(e) => {
+                          if (e.key === "Enter") {
+                            addTag("emotions", e.currentTarget.value);
+                            e.currentTarget.value = "";
+                          }
+                        }}
+                      />
                     </div>
                   )}
                 </div>
-              )}
+
+                {/* Topics */}
+                <div>
+                  <p className="text-slate-500 text-xs mb-2">Topics:</p>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {(isEditing
+                      ? editedEntry?.topics
+                      : selectedEntry.topics
+                    )?.map((topic, index) => (
+                      <span
+                        key={index}
+                        className="inline-flex items-center gap-1 px-2 py-1 bg-green-500/20 text-green-300 text-xs rounded-full"
+                      >
+                        {topic}
+                        {isEditing && (
+                          <button
+                            onClick={() => removeTag("topics", topic)}
+                            className="ml-1 text-green-400 hover:text-green-200 text-xs"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </span>
+                    )) || (
+                      <span className="text-slate-500 text-xs">
+                        No topics tagged
+                      </span>
+                    )}
+                  </div>
+                  {isEditing && (
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Add topic tag..."
+                        className="flex-1 bg-slate-700/60 border-slate-600 text-slate-200 text-xs h-8"
+                        onKeyPress={(e) => {
+                          if (e.key === "Enter") {
+                            addTag("topics", e.currentTarget.value);
+                            e.currentTarget.value = "";
+                          }
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
+
+        {/* Redo Confirmation Dialog */}
+        <Dialog open={redoDialogOpen} onOpenChange={setRedoDialogOpen}>
+          <DialogContent className="bg-slate-900 border-slate-700 text-slate-200">
+            <DialogHeader>
+              <DialogTitle className="text-slate-200 flex items-center gap-2">
+                <RotateCcw className="w-5 h-5 text-orange-400" />
+                Redo Today's Journal
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-4">
+                <p className="text-orange-300 text-sm font-medium mb-2">
+                  ⚠️ Warning: This action cannot be undone
+                </p>
+                <p className="text-slate-300 text-sm">
+                  This will permanently delete your current journal entry and
+                  allow you to start over with today's journaling session.
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <Button
+                  onClick={() => setRedoDialogOpen(false)}
+                  variant="outline"
+                  className="flex-1 border-slate-600 text-slate-200 hover:bg-slate-800"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleRedoJournal}
+                  className="flex-1 bg-orange-600 hover:bg-orange-700 text-white"
+                >
+                  Redo Journal
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
