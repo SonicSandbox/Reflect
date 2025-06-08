@@ -73,6 +73,7 @@ export default function Dashboard() {
     emotions?: string[];
     topics?: string[];
   } | null>(null);
+  const [currentJournalId, setCurrentJournalId] = useState<string | null>(null);
   const [customTags, setCustomTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState<string>("");
   const [hasJournaledToday, setHasJournaledToday] = useState<boolean | null>(
@@ -292,15 +293,46 @@ export default function Dashboard() {
     setCustomTags((prev) => prev.filter((tag) => tag !== tagToRemove));
   };
 
-  const addCustomTag = () => {
+  const addCustomTag = async () => {
     if (newTag.trim() && !customTags.includes(newTag.trim())) {
-      setCustomTags((prev) => [...prev, newTag.trim()]);
+      const tagToAdd = newTag.trim();
+      setCustomTags((prev) => [...prev, tagToAdd]);
       setNewTag("");
+
+      // If we have a current journal entry, update it immediately
+      if (currentJournalId) {
+        await updateJournalTags(currentJournalId, [...customTags, tagToAdd]);
+      }
     }
   };
 
-  const removeCustomTag = (tagToRemove: string) => {
-    setCustomTags((prev) => prev.filter((tag) => tag !== tagToRemove));
+  const updateJournalTags = async (journalId: string, tags: string[]) => {
+    try {
+      const { error } = await supabase
+        .from("journal_entries")
+        .update({ tags: tags })
+        .eq("id", journalId);
+
+      if (error) {
+        console.error("Error updating tags:", error);
+        alert("Failed to update tags");
+      } else {
+        console.log("Tags updated successfully:", tags);
+      }
+    } catch (error) {
+      console.error("Error updating tags:", error);
+      alert("Failed to update tags");
+    }
+  };
+
+  const removeCustomTag = async (tagToRemove: string) => {
+    const updatedTags = customTags.filter((tag) => tag !== tagToRemove);
+    setCustomTags(updatedTags);
+
+    // If we have a current journal entry, update it immediately
+    if (currentJournalId) {
+      await updateJournalTags(currentJournalId, updatedTags);
+    }
   };
 
   const questions = [
@@ -333,6 +365,10 @@ export default function Dashboard() {
 
   const startRecording = async () => {
     try {
+      // Capture the current mood score value to use later
+      const currentMoodScore = selectedScore;
+      console.log("Capturing mood score at recording start:", currentMoodScore);
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream);
       const chunks: BlobPart[] = [];
@@ -347,7 +383,7 @@ export default function Dashboard() {
         const blob = new Blob(chunks, { type: "audio/wav" });
         setAudioBlob(blob);
         stream.getTracks().forEach((track) => track.stop());
-        processAudio(blob);
+        processAudio(blob, currentMoodScore);
       };
 
       recorder.start();
@@ -366,8 +402,9 @@ export default function Dashboard() {
     }
   };
 
-  const processAudio = async (audioBlob: Blob) => {
+  const processAudio = async (audioBlob: Blob, moodScore: number | null) => {
     setIsProcessing(true);
+    console.log("Processing audio with mood score:", moodScore);
 
     try {
       // Create FormData to send the audio file
@@ -381,27 +418,16 @@ export default function Dashboard() {
         throw new Error("Speech-to-text webhook URL not configured");
       }
 
-      console.log("Sending audio to webhook:", webhookUrl);
-      console.log("Audio blob size:", audioBlob.size, "bytes");
-
       const response = await fetch(webhookUrl, {
         method: "POST",
         body: formData,
       });
-
-      console.log("Response status:", response.status);
-      console.log(
-        "Response headers:",
-        Object.fromEntries(response.headers.entries()),
-      );
 
       let result;
       let responseText = "";
 
       try {
         responseText = await response.text();
-        console.log("Raw response:", responseText);
-
         // Try to parse as JSON
         result = JSON.parse(responseText);
       } catch (parseError) {
@@ -410,16 +436,6 @@ export default function Dashboard() {
           error: `Invalid JSON response: ${responseText.substring(0, 200)}...`,
         };
       }
-
-      // Log the complete response structure for debugging
-      console.log("Complete webhook response structure:", {
-        status: response.status,
-        statusText: response.statusText,
-        headers: Object.fromEntries(response.headers.entries()),
-        result: result,
-        resultKeys: Object.keys(result || {}),
-        resultType: typeof result,
-      });
 
       if (!response.ok || result.error) {
         // Handle error response with more details
@@ -456,56 +472,32 @@ export default function Dashboard() {
       let transcription = "";
       let followUpQ = "";
 
-      console.log("Processing webhook response for transcription extraction:", {
-        resultType: typeof result,
-        isArray: Array.isArray(result),
-        resultKeys:
-          result && typeof result === "object" ? Object.keys(result) : "N/A",
-        fullResult: result,
-      });
+      // Process webhook response for transcription extraction
 
       // Handle array response format like [{"response": {"body": {"text-to-speech": "..."}}}]
       let actualData = result;
       if (Array.isArray(result) && result.length > 0) {
-        console.log("Response is array, extracting first element:", result[0]);
         if (result[0].response && result[0].response.body) {
           actualData = result[0].response.body;
-          console.log("Extracted data from array response:", actualData);
         } else if (result[0].body) {
           actualData = result[0].body;
-          console.log("Extracted body from array response:", actualData);
         } else {
           actualData = result[0];
-          console.log("Using first array element as data:", actualData);
         }
       }
 
       // Now extract transcription from the actual data
       if (actualData && actualData["text-to-speech"]) {
         transcription = actualData["text-to-speech"];
-        console.log(
-          "Found transcription in 'text-to-speech' field:",
-          transcription,
-        );
       } else if (actualData && actualData.text) {
         transcription = actualData.text;
-        console.log("Found transcription in 'text' field:", transcription);
       } else if (actualData && actualData.transcription) {
         transcription = actualData.transcription;
-        console.log(
-          "Found transcription in 'transcription' field:",
-          transcription,
-        );
       } else if (actualData && actualData.transcript) {
         transcription = actualData.transcript;
-        console.log(
-          "Found transcription in 'transcript' field:",
-          transcription,
-        );
       } else if (typeof actualData === "string") {
         // Sometimes the entire response is just the transcription string
         transcription = actualData;
-        console.log("Found transcription as string response:", transcription);
       } else {
         // If we can't find the transcription, show what we got
         console.error(
@@ -518,20 +510,10 @@ export default function Dashboard() {
       // Extract follow-up question from actual data
       if (actualData && actualData["follow-up-q"]) {
         followUpQ = actualData["follow-up-q"];
-        console.log("Found follow-up question:", followUpQ);
       }
 
       // Validate transcription before proceeding
       const cleanTranscription = transcription ? transcription.trim() : "";
-
-      console.log("Final transcription validation:", {
-        originalTranscription: transcription,
-        cleanTranscription: cleanTranscription,
-        transcriptionLength: transcription ? transcription.length : 0,
-        cleanTranscriptionLength: cleanTranscription.length,
-        isEmpty: cleanTranscription.length === 0,
-        isErrorMessage: cleanTranscription.startsWith("Error:"),
-      });
 
       // Don't save if transcription is empty or an error message
       if (cleanTranscription.length === 0) {
@@ -556,11 +538,6 @@ export default function Dashboard() {
       setJournalText(cleanTranscription);
       setFollowUpQuestion(followUpQ);
 
-      console.log("Set journalText state to:", {
-        cleanTranscription: cleanTranscription,
-        cleanTranscriptionLength: cleanTranscription.length,
-      });
-
       // If we have a follow-up question, show it; otherwise complete
       if (followUpQ && followUpQ.trim()) {
         setCurrentStep("followUpQuestion");
@@ -568,22 +545,20 @@ export default function Dashboard() {
         // Pass the transcription directly to avoid state timing issues
         setTimeout(() => {
           setCurrentStep("followUpRecording");
-          startFollowUpRecording(cleanTranscription, followUpQ);
+          startFollowUpRecording(cleanTranscription, followUpQ, moodScore);
         }, 3000);
       } else {
+        // Generate tags before saving - COMMENTED OUT FOR MANUAL TAGGING
+        // const tags = await generateTags({ initial: cleanTranscription });
+
         // Save to database without follow-up
-        console.log("About to save journal entry with clean transcription:", {
-          cleanTranscription: cleanTranscription,
-          cleanTranscriptionLength: cleanTranscription.length,
-        });
-        console.log("Calling saveJournalEntry with parameters:", {
-          text: cleanTranscription,
-          textType: typeof cleanTranscription,
-          textLength: cleanTranscription ? cleanTranscription.length : 0,
-          followUpQ: null,
-          followUpResp: null,
-        });
-        await saveJournalEntry(cleanTranscription, null, null);
+        await saveJournalEntry(
+          cleanTranscription,
+          null,
+          null,
+          null, // No auto tags
+          moodScore, // Use the passed mood score instead of selectedScore state
+        );
         setCurrentStep("complete");
       }
     } catch (error) {
@@ -606,113 +581,117 @@ export default function Dashboard() {
     }
   };
 
-  // const generateTags = async (responses: {
-  //   initial: string;
-  //   followUp?: string;
-  // }) => {
-  //   try {
-  //     const tagGenerationUrl = process.env.NEXT_PUBLIC_TAG_GENERATION_URL;
-  //     const tagGenerationApiKey =
-  //       process.env.NEXT_PUBLIC_TAG_GENERATION_API_KEY;
+  const generateTags = async (responses: {
+    initial: string;
+    followUp?: string;
+  }): Promise<{ emotions?: string[]; topics?: string[] } | null> => {
+    try {
+      const tagGenerationApiKey =
+        process.env.NEXT_PUBLIC_TAG_GENERATION_API_KEY;
 
-  //     console.log("Tag generation config:", {
-  //       url: tagGenerationUrl,
-  //       hasApiKey: !!tagGenerationApiKey,
-  //     });
+      console.log("Tag generation config:", {
+        hasApiKey: !!tagGenerationApiKey,
+      });
 
-  //     if (!tagGenerationUrl) {
-  //       console.log("Tag generation URL not configured");
-  //       return null;
-  //     }
+      if (!tagGenerationApiKey) {
+        console.log("Tag generation API key not configured");
+        return null;
+      }
 
-  //     if (!tagGenerationApiKey) {
-  //       console.log("Tag generation API key not configured");
-  //       return null;
-  //     }
+      const payload = {
+        model: "gemini-1.5-flash",
+        contents: [
+          {
+            parts: [
+              {
+                text: `Analyze the following journal entry and generate relevant tags. Return a JSON object with "emotions" and "topics" arrays.
 
-  //     const payload = {
-  //       responses: {
-  //         initial_response: responses.initial,
-  //         follow_up_response: responses.followUp || null,
-  //       },
-  //     };
+Journal Entry: "${responses.initial}"
+${responses.followUp ? `Follow-up Response: "${responses.followUp}"` : ""}
 
-  //     console.log("Sending tag generation request:", {
-  //       url: tagGenerationUrl,
-  //       payload,
-  //     });
+Please return only a JSON object in this format:
+{
+  "emotions": ["emotion1", "emotion2"],
+  "topics": ["topic1", "topic2"]
+}
 
-  //     const response = await fetch(tagGenerationUrl, {
-  //       method: "POST",
-  //       headers: {
-  //         "Content-Type": "application/json",
-  //         "X-API-Key": tagGenerationApiKey,
-  //       },
-  //       body: JSON.stringify(payload),
-  //     });
+Limit to 3-5 emotions and 3-5 topics maximum.`,
+              },
+            ],
+          },
+        ],
+      };
 
-  //     console.log("Tag generation response status:", response.status);
-  //     console.log(
-  //       "Tag generation response headers:",
-  //       Object.fromEntries(response.headers.entries()),
-  //     );
+      console.log("Sending tag generation request to Gemini API");
 
-  //     if (!response.ok) {
-  //       const errorText = await response.text();
-  //       console.error("Tag generation failed:", {
-  //         status: response.status,
-  //         statusText: response.statusText,
-  //         body: errorText,
-  //       });
-  //       return null;
-  //     }
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${tagGenerationApiKey}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        },
+      );
 
-  //     const tags = await response.json();
-  //     console.log("Generated tags:", tags);
-  //     setGeneratedTags(tags);
-  //     return tags;
-  //   } catch (error) {
-  //     console.error("Error generating tags:", error);
-  //     return null;
-  //   }
-  // };
+      console.log("Tag generation response status:", response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Tag generation failed:", {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorText,
+        });
+        return null;
+      }
+
+      const result = await response.json();
+      console.log("Gemini API response:", result);
+
+      // Extract text from Gemini response
+      const generatedText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!generatedText) {
+        console.error("No text found in Gemini response");
+        return null;
+      }
+
+      // Parse JSON from the generated text
+      const jsonMatch = generatedText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        console.error("No JSON found in generated text:", generatedText);
+        return null;
+      }
+
+      const tags = JSON.parse(jsonMatch[0]);
+      console.log("Generated tags:", tags);
+      setGeneratedTags(tags);
+      return tags;
+    } catch (error) {
+      console.error("Error generating tags:", error);
+      return null;
+    }
+  };
 
   const saveJournalEntry = async (
     text: string,
     followUpQ?: string | null,
     followUpResp?: string | null,
+    tags?: { emotions?: string[]; topics?: string[] } | null,
+    moodScore?: number | null,
   ) => {
-    console.log("=== CLIENT SAVE START ===");
-
+    console.log("=== SAVE JOURNAL ENTRY CALLED ===");
+    console.log("Received mood score:", moodScore);
     if (!user) {
       console.error("No user found when trying to save journal entry");
       return;
     }
 
-    console.log("User found:", user.id);
-
-    // Validate that we have content to save - fix the validation logic
-    console.log("=== CLIENT TEXT VALIDATION ===");
-    console.log("Original text:", text);
-    console.log("Text type:", typeof text);
-    console.log(
-      "Text value check:",
-      text === null,
-      text === undefined,
-      text === "",
-    );
-
     // More robust validation
     if (text === null || text === undefined || typeof text !== "string") {
-      console.error("=== CLIENT VALIDATION ERROR ===");
       console.error(
         "Cannot save journal entry: text is null, undefined, or not a string",
-        {
-          originalText: text,
-          textType: typeof text,
-          isNull: text === null,
-          isUndefined: text === undefined,
-        },
       );
       alert(
         "Cannot save journal entry: No content to save. Please try recording again.",
@@ -722,25 +701,8 @@ export default function Dashboard() {
 
     const cleanText = text.trim();
 
-    console.log(
-      "Original text:",
-      text ? `"${text.substring(0, 200)}..."` : "NULL/UNDEFINED",
-    );
-    console.log(
-      "Clean text:",
-      cleanText ? `"${cleanText.substring(0, 200)}..."` : "EMPTY",
-    );
-    console.log("Text length:", text ? text.length : 0);
-    console.log("Clean text length:", cleanText.length);
-
     if (cleanText.length === 0) {
-      console.error("=== CLIENT VALIDATION ERROR ===");
-      console.error("Cannot save journal entry: text is empty after trimming", {
-        originalText: text,
-        cleanText: cleanText,
-        textLength: text.length,
-        cleanTextLength: cleanText.length,
-      });
+      console.error("Cannot save journal entry: text is empty after trimming");
       alert(
         "Cannot save journal entry: No content to save. Please try recording again.",
       );
@@ -751,9 +713,6 @@ export default function Dashboard() {
     if (cleanText.startsWith("Error:")) {
       console.error(
         "Cannot save journal entry: content contains error message",
-        {
-          cleanText: cleanText.substring(0, 100),
-        },
       );
       alert(
         "Cannot save journal entry: There was an error processing your audio. Please try again.",
@@ -762,42 +721,30 @@ export default function Dashboard() {
     }
 
     try {
-      console.log("=== CLIENT PREPARING DATA ===");
-      console.log("Starting to save journal entry with text:", {
-        text: text.substring(0, 100) + (text.length > 100 ? "..." : ""),
-        textLength: text.length,
-        cleanText:
-          cleanText.substring(0, 100) + (cleanText.length > 100 ? "..." : ""),
-        cleanTextLength: cleanText.length,
-      });
-
       // Use server action instead of direct client insert
       const formData = new FormData();
       const currentDate = new Date().toISOString().split("T")[0];
+      // Use the passed moodScore parameter directly - don't fall back to selectedScore state
+      const currentMoodScore = moodScore;
 
-      console.log("=== CLIENT FORM DATA PREPARATION ===");
+      console.log("=== MOOD SCORE TRACKING ===");
+      console.log("passed moodScore:", moodScore);
+      console.log("currentMoodScore (final):", currentMoodScore);
+      console.log("currentMoodScore type:", typeof currentMoodScore);
+      console.log("currentMoodScore is null:", currentMoodScore === null);
       console.log(
-        "About to append content:",
-        `"${cleanText.substring(0, 100)}..."`,
+        "currentMoodScore is undefined:",
+        currentMoodScore === undefined,
       );
-      console.log("About to append date:", currentDate);
-      console.log("Selected score:", selectedScore);
-      console.log(
-        "Follow-up question:",
-        followUpQ ? `"${followUpQ.substring(0, 50)}..."` : "NULL",
-      );
-      console.log(
-        "Follow-up response:",
-        followUpResp ? `"${followUpResp.substring(0, 50)}..."` : "NULL",
-      );
-      console.log("Weather:", weather);
+      console.log("currentMoodScore truthy check:", !!currentMoodScore);
 
       // Append data to FormData
       formData.append("content", cleanText);
       formData.append("date", currentDate);
 
-      if (selectedScore) {
-        formData.append("mood_score", selectedScore.toString());
+      if (currentMoodScore !== null && currentMoodScore !== undefined) {
+        formData.append("mood_score", currentMoodScore.toString());
+        console.log("Mood score appended:", currentMoodScore);
       }
       if (followUpQ && followUpQ.trim()) {
         formData.append("follow_up_question", followUpQ.trim());
@@ -805,53 +752,48 @@ export default function Dashboard() {
       if (followUpResp && followUpResp.trim()) {
         formData.append("follow_up_response", followUpResp.trim());
       }
-      // Note: Weather data is not stored in journal_entries table
 
-      // Log all FormData entries before sending
-      console.log("=== CLIENT FORM DATA ENTRIES ===");
-      for (const [key, value] of formData.entries()) {
-        console.log(
-          `${key}:`,
-          typeof value === "string"
-            ? `"${value.substring(0, 200)}${value.length > 200 ? "..." : ""}"`
-            : value,
-        );
+      // Add tags if available
+      const allTags = [];
+      if (tags?.emotions && tags.emotions.length > 0) {
+        allTags.push(...tags.emotions);
+      }
+      if (tags?.topics && tags.topics.length > 0) {
+        allTags.push(...tags.topics);
+      }
+      if (customTags.length > 0) {
+        allTags.push(...customTags);
+      }
+      if (allTags.length > 0) {
+        formData.append("tags", JSON.stringify(allTags));
       }
 
-      console.log("=== CALLING SERVER ACTION ===");
+      // Note: Weather data is not stored in journal_entries table
+
       const { saveJournalEntryAction } = await import("../actions");
       const result = await saveJournalEntryAction(formData);
 
-      console.log("=== SERVER ACTION RESULT ===");
-      console.log("Result:", result);
-
       if (result.error) {
-        console.error("=== SERVER ACTION ERROR ===");
         console.error("Error saving journal entry:", result.error);
         alert(`Failed to save journal entry: ${result.error}`);
-      } else {
-        console.log("=== SERVER ACTION SUCCESS ===");
-        console.log("Journal entry saved successfully:", result.data);
+      } else if (result.data) {
+        // Store the journal entry ID for later tag updates
+        setCurrentJournalId(result.data.id);
       }
     } catch (error) {
-      console.error("=== CLIENT UNEXPECTED ERROR ===");
       console.error("Error saving journal entry:", error);
-      console.error(
-        "Error stack:",
-        error instanceof Error ? error.stack : "No stack trace",
-      );
       alert(
         `Failed to save journal entry: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
     }
-
-    console.log("=== CLIENT SAVE END ===");
   };
 
   const startFollowUpRecording = async (
     initialText?: string,
     followUpQ?: string,
+    moodScore?: number | null,
   ) => {
+    console.log("Starting follow-up recording with mood score:", moodScore);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream);
@@ -867,7 +809,7 @@ export default function Dashboard() {
         const blob = new Blob(chunks, { type: "audio/wav" });
         setAudioBlob(blob);
         stream.getTracks().forEach((track) => track.stop());
-        processFollowUpAudio(blob, initialText, followUpQ);
+        processFollowUpAudio(blob, initialText, followUpQ, moodScore);
       };
 
       recorder.start();
@@ -890,36 +832,14 @@ export default function Dashboard() {
     audioBlob: Blob,
     initialText?: string,
     followUpQ?: string,
+    moodScore?: number | null,
   ) => {
+    console.log("Processing follow-up audio with mood score:", moodScore);
     setIsProcessing(true);
 
     // Use passed parameters or fall back to state
     const currentJournalText = initialText || journalText;
     const currentFollowUpQuestion = followUpQ || followUpQuestion;
-
-    // Log the current state at the beginning of follow-up processing
-    console.log("=== FOLLOW-UP PROCESSING START ===");
-    console.log("Current journalText state:", {
-      journalText: journalText,
-      journalTextType: typeof journalText,
-      journalTextLength: journalText ? journalText.length : 0,
-      isEmpty: !journalText || journalText.trim().length === 0,
-    });
-    console.log("Passed initialText:", {
-      initialText: initialText,
-      initialTextType: typeof initialText,
-      initialTextLength: initialText ? initialText.length : 0,
-    });
-    console.log("Using currentJournalText:", {
-      currentJournalText: currentJournalText,
-      currentJournalTextType: typeof currentJournalText,
-      currentJournalTextLength: currentJournalText
-        ? currentJournalText.length
-        : 0,
-    });
-    console.log("Current followUpQuestion:", followUpQuestion);
-    console.log("Passed followUpQ:", followUpQ);
-    console.log("Using currentFollowUpQuestion:", currentFollowUpQuestion);
 
     try {
       // Create FormData to send the audio file
@@ -958,36 +878,16 @@ export default function Dashboard() {
           `HTTP error! status: ${response.status}`;
         setFollowUpResponse(`Error processing audio: ${errorMessage}`);
 
-        // Check journalText state again before error handling
-        console.log("=== ERROR HANDLER - JOURNAL TEXT CHECK ===");
-        console.log("journalText state in error handler:", {
-          journalText: journalText,
-          journalTextType: typeof journalText,
-          journalTextLength: journalText ? journalText.length : 0,
-          isEmpty: !journalText || journalText.trim().length === 0,
-        });
-
-        console.log("Calling saveJournalEntry with error parameters:", {
-          text: currentJournalText,
-          textType: typeof currentJournalText,
-          textLength: currentJournalText ? currentJournalText.length : 0,
-          followUpQ: currentFollowUpQuestion,
-          followUpResp: `Error: ${errorMessage}`,
-          journalTextState: journalText,
-        });
-
         if (currentJournalText && currentJournalText.trim().length > 0) {
           await saveJournalEntry(
             currentJournalText,
             currentFollowUpQuestion,
             `Error: ${errorMessage}`,
+            null, // No auto tags
+            moodScore, // Use the passed mood score instead of selectedScore state
           );
         } else {
-          console.error("=== ERROR: EMPTY JOURNAL TEXT IN ERROR HANDLER ===", {
-            originalJournalText: journalText,
-            currentJournalText: currentJournalText,
-            followUpQuestion: currentFollowUpQuestion,
-          });
+          console.error("ERROR: Empty journal text in error handler");
           alert(
             "Error: Cannot save journal entry because the initial response is missing. Please try recording again.",
           );
@@ -1029,57 +929,11 @@ export default function Dashboard() {
         ? transcription.trim()
         : "";
 
-      console.log("Follow-up response transcription validation:", {
-        originalTranscription: transcription,
-        cleanTranscription: cleanFollowUpTranscription,
-        transcriptionLength: transcription ? transcription.length : 0,
-        cleanTranscriptionLength: cleanFollowUpTranscription.length,
-      });
-
-      console.log("About to save complete journal entry:", {
-        journalText: journalText,
-        journalTextLength: journalText ? journalText.length : 0,
-        followUpQuestion: followUpQuestion,
-        followUpTranscription: cleanFollowUpTranscription,
-        followUpTranscriptionLength: cleanFollowUpTranscription.length,
-      });
-
       setFollowUpResponse(cleanFollowUpTranscription);
-
-      // Check journalText state before saving
-      console.log("=== FINAL SAVE - JOURNAL TEXT CHECK ===");
-      console.log("journalText state before final save:", {
-        journalText: journalText,
-        journalTextType: typeof journalText,
-        journalTextLength: journalText ? journalText.length : 0,
-        isEmpty: !journalText || journalText.trim().length === 0,
-        followUpQuestion: followUpQuestion,
-        cleanFollowUpTranscription: cleanFollowUpTranscription,
-      });
-
-      console.log("Calling saveJournalEntry with follow-up parameters:", {
-        text: currentJournalText,
-        textType: typeof currentJournalText,
-        textLength: currentJournalText ? currentJournalText.length : 0,
-        followUpQ: currentFollowUpQuestion,
-        followUpResp: cleanFollowUpTranscription,
-        journalTextState: journalText,
-      });
 
       if (!currentJournalText || currentJournalText.trim().length === 0) {
         console.error(
-          "=== ERROR: journalText is empty when trying to save follow-up response ===",
-          {
-            originalJournalText: journalText,
-            currentJournalText: currentJournalText,
-            followUpQuestion: currentFollowUpQuestion,
-            cleanFollowUpTranscription: cleanFollowUpTranscription,
-            stateSnapshot: {
-              currentStep: currentStep,
-              selectedScore: selectedScore,
-              currentQuestion: currentQuestion,
-            },
-          },
+          "ERROR: journalText is empty when trying to save follow-up response",
         );
         alert(
           "Error: Initial journal text is missing. This might be due to a state management issue. Please try recording your journal entry again from the beginning.",
@@ -1088,51 +942,39 @@ export default function Dashboard() {
         return;
       }
 
+      // Generate tags with both responses - COMMENTED OUT FOR MANUAL TAGGING
+      // const tags = await generateTags({
+      //   initial: currentJournalText,
+      //   followUp: cleanFollowUpTranscription,
+      // });
+
       await saveJournalEntry(
         currentJournalText,
         currentFollowUpQuestion,
         cleanFollowUpTranscription,
+        null, // No auto tags
+        moodScore, // Use the passed mood score instead of selectedScore state
       );
       setCurrentStep("complete");
     } catch (error) {
-      console.error("=== FOLLOW-UP PROCESSING CATCH ERROR ===");
       console.error("Error processing follow-up audio:", error);
-
-      // Check journalText state in catch block
-      console.log("journalText state in catch block:", {
-        journalText: journalText,
-        journalTextType: typeof journalText,
-        journalTextLength: journalText ? journalText.length : 0,
-        isEmpty: !journalText || journalText.trim().length === 0,
-      });
 
       let errorMessage = "Unknown error occurred";
       if (error instanceof Error) {
         errorMessage = error.message;
       }
       setFollowUpResponse(`Error processing audio: ${errorMessage}`);
-      console.log("Calling saveJournalEntry with error parameters (2):", {
-        text: currentJournalText,
-        textType: typeof currentJournalText,
-        textLength: currentJournalText ? currentJournalText.length : 0,
-        followUpQ: currentFollowUpQuestion,
-        followUpResp: `Error: ${errorMessage}`,
-        journalTextState: journalText,
-      });
 
       if (currentJournalText && currentJournalText.trim().length > 0) {
         await saveJournalEntry(
           currentJournalText,
           currentFollowUpQuestion,
           `Error: ${errorMessage}`,
+          null, // No auto tags
+          moodScore, // Use the passed mood score instead of selectedScore state
         );
       } else {
-        console.error("=== ERROR: EMPTY JOURNAL TEXT IN CATCH HANDLER ===", {
-          originalJournalText: journalText,
-          currentJournalText: currentJournalText,
-          followUpQuestion: currentFollowUpQuestion,
-          error: errorMessage,
-        });
+        console.error("ERROR: Empty journal text in catch handler");
         alert(
           "Error: Cannot save journal entry because the initial response is missing. Please try recording again.",
         );
@@ -1463,6 +1305,7 @@ export default function Dashboard() {
                       key={score}
                       onClick={() => {
                         setSelectedScore(score);
+                        console.log("User selected mood score:", score);
                         // Move to next step after selection
                         setTimeout(() => {
                           setCurrentStep("questionDisplay");
@@ -1797,8 +1640,8 @@ export default function Dashboard() {
                     </div>
                   )}
 
-                  {/* Tags Section - COMMENTED OUT FOR NOW */}
-                  {/* {generatedTags?.emotions?.length ||
+                  {/* Tags Section */}
+                  {generatedTags?.emotions?.length ||
                   generatedTags?.topics?.length ||
                   customTags.length ? (
                     <div className="bg-slate-800/60 rounded-xl p-4 text-left">
@@ -1927,7 +1770,7 @@ export default function Dashboard() {
                         </button>
                       </div>
                     </div>
-                  )} */}
+                  )}
 
                   {/* Weather Information */}
                   {weather && (
@@ -1943,7 +1786,28 @@ export default function Dashboard() {
                   )}
                 </div>
                 <Button
-                  onClick={() => window.location.reload()}
+                  onClick={() => {
+                    // Save any remaining custom tags before leaving
+                    if (customTags.length > 0) {
+                      const allCurrentTags = [];
+                      if (generatedTags?.emotions)
+                        allCurrentTags.push(...generatedTags.emotions);
+                      if (generatedTags?.topics)
+                        allCurrentTags.push(...generatedTags.topics);
+                      allCurrentTags.push(...customTags);
+
+                      // Update the saved entry with all tags
+                      const updateTags = async () => {
+                        const formData = new FormData();
+                        formData.append("tags", JSON.stringify(allCurrentTags));
+                        // This would need a separate update action, for now just reload
+                        window.location.reload();
+                      };
+                      updateTags();
+                    } else {
+                      window.location.reload();
+                    }
+                  }}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg"
                 >
                   Return to Dashboard

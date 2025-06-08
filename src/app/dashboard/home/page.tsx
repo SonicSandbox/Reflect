@@ -20,8 +20,6 @@ import { Tables } from "@/types/supabase";
 import { redirect } from "next/navigation";
 
 interface JournalEntry extends Tables<"journal_entries"> {
-  emotions?: string[] | null;
-  topics?: string[] | null;
   follow_up_question?: string | null;
   follow_up_response?: string | null;
 }
@@ -155,13 +153,9 @@ export default function HomePage() {
         mood_score: editedEntry.mood_score,
         follow_up_question: editedEntry.follow_up_question || null,
         follow_up_response: editedEntry.follow_up_response || null,
-        emotions:
-          editedEntry.emotions && editedEntry.emotions.length > 0
-            ? editedEntry.emotions
-            : null,
-        topics:
-          editedEntry.topics && editedEntry.topics.length > 0
-            ? editedEntry.topics
+        tags:
+          editedEntry.tags && editedEntry.tags.length > 0
+            ? editedEntry.tags
             : null,
       });
 
@@ -172,13 +166,9 @@ export default function HomePage() {
           mood_score: editedEntry.mood_score,
           follow_up_question: editedEntry.follow_up_question || null,
           follow_up_response: editedEntry.follow_up_response || null,
-          emotions:
-            editedEntry.emotions && editedEntry.emotions.length > 0
-              ? editedEntry.emotions
-              : null,
-          topics:
-            editedEntry.topics && editedEntry.topics.length > 0
-              ? editedEntry.topics
+          tags:
+            editedEntry.tags && editedEntry.tags.length > 0
+              ? editedEntry.tags
               : null,
           updated_at: new Date().toISOString(),
         })
@@ -236,25 +226,25 @@ export default function HomePage() {
     }
   };
 
-  const addTag = (type: "emotions" | "topics", tag: string) => {
+  const addTag = (tag: string) => {
     if (!editedEntry || !tag.trim()) return;
 
-    const currentTags = editedEntry[type] || [];
+    const currentTags = editedEntry.tags || [];
     if (!currentTags.includes(tag.trim())) {
       setEditedEntry({
         ...editedEntry,
-        [type]: [...currentTags, tag.trim()],
+        tags: [...currentTags, tag.trim()],
       });
     }
   };
 
-  const removeTag = (type: "emotions" | "topics", tagToRemove: string) => {
+  const removeTag = (tagToRemove: string) => {
     if (!editedEntry) return;
 
-    const currentTags = editedEntry[type] || [];
+    const currentTags = editedEntry.tags || [];
     setEditedEntry({
       ...editedEntry,
-      [type]: currentTags.filter((tag) => tag !== tagToRemove),
+      tags: currentTags.filter((tag) => tag !== tagToRemove),
     });
   };
 
@@ -291,69 +281,70 @@ export default function HomePage() {
   // Show detailed entry view when an entry is selected
   if (selectedEntry) {
     return (
-      <div className="fixed inset-0 bg-slate-950 flex flex-col">
-        {/* Back Button */}
-        <div className="absolute top-4 left-4 z-10">
-          <Button
-            onClick={isEditing ? handleCancelEdit : handleBackToList}
-            variant="ghost"
-            size="icon"
-            className="rounded-full bg-slate-800/50 hover:bg-slate-700/50 text-slate-300"
-          >
-            {isEditing ? (
-              <X className="h-5 w-5" />
-            ) : (
-              <ArrowLeft className="h-5 w-5" />
-            )}
-          </Button>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="absolute top-4 right-4 z-10 flex gap-2">
-          {!isEditing ? (
-            <>
-              <Button
-                onClick={handleEditEntry}
-                variant="ghost"
-                size="icon"
-                className="rounded-full bg-slate-800/50 hover:bg-slate-700/50 text-slate-300"
-              >
-                <Edit className="h-5 w-5" />
-              </Button>
-              <Button
-                onClick={() => setRedoDialogOpen(true)}
-                variant="ghost"
-                size="icon"
-                className="rounded-full bg-slate-800/50 hover:bg-slate-700/50 text-slate-300"
-              >
-                <RotateCcw className="h-5 w-5" />
-              </Button>
-              <Link href="/dashboard">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="rounded-full bg-slate-800/50 hover:bg-slate-700/50 text-slate-300"
-                >
-                  <Home className="h-5 w-5" />
-                </Button>
-              </Link>
-            </>
-          ) : (
+      <div className="min-h-screen bg-slate-950">
+        {/* Header with buttons */}
+        <div className="sticky top-0 bg-slate-950/95 backdrop-blur-sm border-b border-slate-800 z-10">
+          <div className="flex items-center justify-between p-4">
             <Button
-              onClick={handleSaveEdit}
-              disabled={saving}
+              onClick={isEditing ? handleCancelEdit : handleBackToList}
               variant="ghost"
               size="icon"
-              className="rounded-full bg-green-600/50 hover:bg-green-500/50 text-white"
+              className="rounded-full bg-slate-800/50 hover:bg-slate-700/50 text-slate-300"
             >
-              <Save className="h-5 w-5" />
+              {isEditing ? (
+                <X className="h-5 w-5" />
+              ) : (
+                <ArrowLeft className="h-5 w-5" />
+              )}
             </Button>
-          )}
+
+            <div className="flex gap-2">
+              {!isEditing ? (
+                <>
+                  <Button
+                    onClick={handleEditEntry}
+                    variant="ghost"
+                    size="icon"
+                    className="rounded-full bg-slate-800/50 hover:bg-slate-700/50 text-slate-300"
+                  >
+                    <Edit className="h-5 w-5" />
+                  </Button>
+                  <Button
+                    onClick={() => setRedoDialogOpen(true)}
+                    variant="ghost"
+                    size="icon"
+                    className="rounded-full bg-slate-800/50 hover:bg-slate-700/50 text-slate-300"
+                  >
+                    <RotateCcw className="h-5 w-5" />
+                  </Button>
+                  <Link href="/dashboard">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="rounded-full bg-slate-800/50 hover:bg-slate-700/50 text-slate-300"
+                    >
+                      <Home className="h-5 w-5" />
+                    </Button>
+                  </Link>
+                </>
+              ) : (
+                <Button
+                  onClick={handleSaveEdit}
+                  disabled={saving}
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-full bg-green-600/50 hover:bg-green-500/50 text-white"
+                >
+                  <Save className="h-5 w-5" />
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Entry Detail View */}
-        <div className="flex-1 flex items-center justify-center p-6">
-          <div className="w-full max-w-2xl">
+        {/* Scrollable Entry Detail View */}
+        <div className="max-w-2xl mx-auto p-6">
+          <div className="w-full">
             <div className="text-center mb-8">
               <div className="w-16 h-16 mx-auto mb-6 bg-green-500/20 rounded-full flex items-center justify-center">
                 <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
@@ -489,94 +480,40 @@ export default function HomePage() {
               {/* Tags Section */}
               <div className="bg-slate-800/60 rounded-xl p-4 text-left">
                 <p className="text-slate-400 text-xs mb-3">Tags:</p>
-
-                {/* Emotions */}
-                <div className="mb-3">
-                  <p className="text-slate-500 text-xs mb-2">Emotions:</p>
-                  <div className="flex flex-wrap gap-2 mb-2">
-                    {(isEditing
-                      ? editedEntry?.emotions
-                      : selectedEntry.emotions
-                    )?.map((emotion, index) => (
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {(isEditing ? editedEntry?.tags : selectedEntry.tags)?.map(
+                    (tag, index) => (
                       <span
                         key={index}
                         className="inline-flex items-center gap-1 px-2 py-1 bg-blue-500/20 text-blue-300 text-xs rounded-full"
                       >
-                        {emotion}
+                        {tag}
                         {isEditing && (
                           <button
-                            onClick={() => removeTag("emotions", emotion)}
+                            onClick={() => removeTag(tag)}
                             className="ml-1 text-blue-400 hover:text-blue-200 text-xs"
                           >
                             ×
                           </button>
                         )}
                       </span>
-                    )) || (
-                      <span className="text-slate-500 text-xs">
-                        No emotions tagged
-                      </span>
-                    )}
-                  </div>
-                  {isEditing && (
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="Add emotion tag..."
-                        className="flex-1 bg-slate-700/60 border-slate-600 text-slate-200 text-xs h-8"
-                        onKeyPress={(e) => {
-                          if (e.key === "Enter") {
-                            addTag("emotions", e.currentTarget.value);
-                            e.currentTarget.value = "";
-                          }
-                        }}
-                      />
-                    </div>
-                  )}
+                    ),
+                  ) || <span className="text-slate-500 text-xs">No tags</span>}
                 </div>
-
-                {/* Topics */}
-                <div>
-                  <p className="text-slate-500 text-xs mb-2">Topics:</p>
-                  <div className="flex flex-wrap gap-2 mb-2">
-                    {(isEditing
-                      ? editedEntry?.topics
-                      : selectedEntry.topics
-                    )?.map((topic, index) => (
-                      <span
-                        key={index}
-                        className="inline-flex items-center gap-1 px-2 py-1 bg-green-500/20 text-green-300 text-xs rounded-full"
-                      >
-                        {topic}
-                        {isEditing && (
-                          <button
-                            onClick={() => removeTag("topics", topic)}
-                            className="ml-1 text-green-400 hover:text-green-200 text-xs"
-                          >
-                            ×
-                          </button>
-                        )}
-                      </span>
-                    )) || (
-                      <span className="text-slate-500 text-xs">
-                        No topics tagged
-                      </span>
-                    )}
+                {isEditing && (
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Add tag..."
+                      className="flex-1 bg-slate-700/60 border-slate-600 text-slate-200 text-xs h-8"
+                      onKeyPress={(e) => {
+                        if (e.key === "Enter") {
+                          addTag(e.currentTarget.value);
+                          e.currentTarget.value = "";
+                        }
+                      }}
+                    />
                   </div>
-                  {isEditing && (
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="Add topic tag..."
-                        className="flex-1 bg-slate-700/60 border-slate-600 text-slate-200 text-xs h-8"
-                        onKeyPress={(e) => {
-                          if (e.key === "Enter") {
-                            addTag("topics", e.currentTarget.value);
-                            e.currentTarget.value = "";
-                          }
-                        }}
-                      />
-                    </div>
-                  )}
-                </div>
+                )}
               </div>
             </div>
           </div>
@@ -743,33 +680,19 @@ export default function HomePage() {
                     </div>
 
                     {/* Tags Preview */}
-                    {(entry.emotions?.length || entry.topics?.length) && (
+                    {entry.tags && entry.tags.length > 0 && (
                       <div className="flex flex-wrap gap-2">
-                        {entry.emotions?.slice(0, 3).map((emotion, index) => (
+                        {entry.tags.slice(0, 6).map((tag, index) => (
                           <span
-                            key={`emotion-${index}`}
+                            key={`tag-${index}`}
                             className="px-2 py-1 bg-blue-500/20 text-blue-300 text-xs rounded-full"
                           >
-                            {emotion}
+                            {tag}
                           </span>
                         ))}
-                        {entry.topics?.slice(0, 3).map((topic, index) => (
-                          <span
-                            key={`topic-${index}`}
-                            className="px-2 py-1 bg-green-500/20 text-green-300 text-xs rounded-full"
-                          >
-                            {topic}
-                          </span>
-                        ))}
-                        {(entry.emotions?.length || 0) +
-                          (entry.topics?.length || 0) >
-                          6 && (
+                        {entry.tags.length > 6 && (
                           <span className="px-2 py-1 bg-slate-600/40 text-slate-400 text-xs rounded-full">
-                            +
-                            {(entry.emotions?.length || 0) +
-                              (entry.topics?.length || 0) -
-                              6}{" "}
-                            more
+                            +{entry.tags.length - 6} more
                           </span>
                         )}
                       </div>
