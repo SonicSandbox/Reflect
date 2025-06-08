@@ -768,7 +768,10 @@ Limit to 3-5 emotions and 3-5 topics maximum.`,
         formData.append("tags", JSON.stringify(allTags));
       }
 
-      // Note: Weather data is not stored in journal_entries table
+      // Add weather data if available
+      if (weather) {
+        formData.append("weather", JSON.stringify(weather));
+      }
 
       const { saveJournalEntryAction } = await import("../actions");
       const result = await saveJournalEntryAction(formData);

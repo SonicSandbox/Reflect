@@ -21,6 +21,7 @@ export type Database = {
           tags: string[] | null
           updated_at: string | null
           user_id: string
+          weather: Json | null
         }
         Insert: {
           content: string
@@ -33,6 +34,7 @@ export type Database = {
           tags?: string[] | null
           updated_at?: string | null
           user_id: string
+          weather?: Json | null
         }
         Update: {
           content?: string
@@ -45,6 +47,7 @@ export type Database = {
           tags?: string[] | null
           updated_at?: string | null
           user_id?: string
+          weather?: Json | null
         }
         Relationships: []
       }

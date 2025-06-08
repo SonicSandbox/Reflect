@@ -210,7 +210,7 @@ export const saveJournalEntryAction = async (formData: FormData) => {
       .get("follow_up_response")
       ?.toString()
       ?.trim();
-    const weather = formData.get("weather")?.toString()?.trim();
+    const weatherStr = formData.get("weather")?.toString()?.trim();
 
     console.log("=== EXTRACTED FORM DATA ===");
     console.log(
@@ -233,7 +233,7 @@ export const saveJournalEntryAction = async (formData: FormData) => {
       "followUpResponse:",
       followUpResponse ? `"${followUpResponse.substring(0, 50)}..."` : "EMPTY",
     );
-    console.log("weather:", weather);
+    console.log("weatherStr:", weatherStr);
 
     // Validate required fields
     if (!content) {
@@ -289,6 +289,16 @@ export const saveJournalEntryAction = async (formData: FormData) => {
 
     if (followUpResponse) {
       insertData.follow_up_response = followUpResponse;
+    }
+
+    // Add weather if provided
+    if (weatherStr) {
+      try {
+        const weather = JSON.parse(weatherStr);
+        insertData.weather = weather;
+      } catch (error) {
+        console.error("Error parsing weather:", error);
+      }
     }
 
     // Add tags if provided

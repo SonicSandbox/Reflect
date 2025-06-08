@@ -19,9 +19,12 @@ import { User } from "@supabase/supabase-js";
 import { Tables } from "@/types/supabase";
 import { redirect } from "next/navigation";
 
-interface JournalEntry extends Tables<"journal_entries"> {
-  follow_up_question?: string | null;
-  follow_up_response?: string | null;
+interface JournalEntry extends Omit<Tables<"journal_entries">, "weather"> {
+  weather?: {
+    temp: number;
+    condition: string;
+    location: string;
+  } | null;
 }
 
 export default function HomePage() {
@@ -170,6 +173,7 @@ export default function HomePage() {
             editedEntry.tags && editedEntry.tags.length > 0
               ? editedEntry.tags
               : null,
+          weather: editedEntry.weather || null,
           updated_at: new Date().toISOString(),
         })
         .eq("id", editedEntry.id)
@@ -515,6 +519,20 @@ export default function HomePage() {
                   </div>
                 )}
               </div>
+
+              {/* Weather Information */}
+              {selectedEntry.weather && (
+                <div className="bg-slate-800/60 rounded-xl p-4 text-left">
+                  <p className="text-slate-400 text-xs mb-2">
+                    Weather on this day:
+                  </p>
+                  <p className="text-slate-300 text-sm">
+                    {selectedEntry.weather.temp}°{" "}
+                    {selectedEntry.weather.condition} in{" "}
+                    {selectedEntry.weather.location}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>
