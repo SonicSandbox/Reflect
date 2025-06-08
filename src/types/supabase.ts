@@ -15,6 +15,8 @@ export type Database = {
           created_at: string | null
           date: string
           emotions: string[] | null
+          follow_up_question: string | null
+          follow_up_response: string | null
           id: string
           mood_score: number | null
           topics: string[] | null
@@ -26,6 +28,8 @@ export type Database = {
           created_at?: string | null
           date: string
           emotions?: string[] | null
+          follow_up_question?: string | null
+          follow_up_response?: string | null
           id?: string
           mood_score?: number | null
           topics?: string[] | null
@@ -37,6 +41,8 @@ export type Database = {
           created_at?: string | null
           date?: string
           emotions?: string[] | null
+          follow_up_question?: string | null
+          follow_up_response?: string | null
           id?: string
           mood_score?: number | null
           topics?: string[] | null

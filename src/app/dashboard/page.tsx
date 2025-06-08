@@ -565,9 +565,10 @@ export default function Dashboard() {
       if (followUpQ && followUpQ.trim()) {
         setCurrentStep("followUpQuestion");
         // Auto-start recording after showing the follow-up question
+        // Pass the transcription directly to avoid state timing issues
         setTimeout(() => {
           setCurrentStep("followUpRecording");
-          startFollowUpRecording();
+          startFollowUpRecording(cleanTranscription, followUpQ);
         }, 3000);
       } else {
         // Save to database without follow-up
@@ -804,10 +805,7 @@ export default function Dashboard() {
       if (followUpResp && followUpResp.trim()) {
         formData.append("follow_up_response", followUpResp.trim());
       }
-      if (weather) {
-        const weatherData = JSON.stringify(weather);
-        formData.append("weather", weatherData);
-      }
+      // Note: Weather data is not stored in journal_entries table
 
       // Log all FormData entries before sending
       console.log("=== CLIENT FORM DATA ENTRIES ===");
@@ -850,7 +848,10 @@ export default function Dashboard() {
     console.log("=== CLIENT SAVE END ===");
   };
 
-  const startFollowUpRecording = async () => {
+  const startFollowUpRecording = async (
+    initialText?: string,
+    followUpQ?: string,
+  ) => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream);
@@ -866,7 +867,7 @@ export default function Dashboard() {
         const blob = new Blob(chunks, { type: "audio/wav" });
         setAudioBlob(blob);
         stream.getTracks().forEach((track) => track.stop());
-        processFollowUpAudio(blob);
+        processFollowUpAudio(blob, initialText, followUpQ);
       };
 
       recorder.start();
@@ -885,8 +886,16 @@ export default function Dashboard() {
     }
   };
 
-  const processFollowUpAudio = async (audioBlob: Blob) => {
+  const processFollowUpAudio = async (
+    audioBlob: Blob,
+    initialText?: string,
+    followUpQ?: string,
+  ) => {
     setIsProcessing(true);
+
+    // Use passed parameters or fall back to state
+    const currentJournalText = initialText || journalText;
+    const currentFollowUpQuestion = followUpQ || followUpQuestion;
 
     // Log the current state at the beginning of follow-up processing
     console.log("=== FOLLOW-UP PROCESSING START ===");
@@ -896,7 +905,21 @@ export default function Dashboard() {
       journalTextLength: journalText ? journalText.length : 0,
       isEmpty: !journalText || journalText.trim().length === 0,
     });
+    console.log("Passed initialText:", {
+      initialText: initialText,
+      initialTextType: typeof initialText,
+      initialTextLength: initialText ? initialText.length : 0,
+    });
+    console.log("Using currentJournalText:", {
+      currentJournalText: currentJournalText,
+      currentJournalTextType: typeof currentJournalText,
+      currentJournalTextLength: currentJournalText
+        ? currentJournalText.length
+        : 0,
+    });
     console.log("Current followUpQuestion:", followUpQuestion);
+    console.log("Passed followUpQ:", followUpQ);
+    console.log("Using currentFollowUpQuestion:", currentFollowUpQuestion);
 
     try {
       // Create FormData to send the audio file
@@ -944,12 +967,11 @@ export default function Dashboard() {
           isEmpty: !journalText || journalText.trim().length === 0,
         });
 
-        const currentJournalText = journalText || "";
         console.log("Calling saveJournalEntry with error parameters:", {
           text: currentJournalText,
           textType: typeof currentJournalText,
           textLength: currentJournalText ? currentJournalText.length : 0,
-          followUpQ: followUpQuestion,
+          followUpQ: currentFollowUpQuestion,
           followUpResp: `Error: ${errorMessage}`,
           journalTextState: journalText,
         });
@@ -957,14 +979,14 @@ export default function Dashboard() {
         if (currentJournalText && currentJournalText.trim().length > 0) {
           await saveJournalEntry(
             currentJournalText,
-            followUpQuestion,
+            currentFollowUpQuestion,
             `Error: ${errorMessage}`,
           );
         } else {
           console.error("=== ERROR: EMPTY JOURNAL TEXT IN ERROR HANDLER ===", {
             originalJournalText: journalText,
             currentJournalText: currentJournalText,
-            followUpQuestion: followUpQuestion,
+            followUpQuestion: currentFollowUpQuestion,
           });
           alert(
             "Error: Cannot save journal entry because the initial response is missing. Please try recording again.",
@@ -1035,14 +1057,11 @@ export default function Dashboard() {
         cleanFollowUpTranscription: cleanFollowUpTranscription,
       });
 
-      // Save complete journal entry with follow-up
-      // Use the current journalText state, but add validation
-      const currentJournalText = journalText || "";
       console.log("Calling saveJournalEntry with follow-up parameters:", {
         text: currentJournalText,
         textType: typeof currentJournalText,
         textLength: currentJournalText ? currentJournalText.length : 0,
-        followUpQ: followUpQuestion,
+        followUpQ: currentFollowUpQuestion,
         followUpResp: cleanFollowUpTranscription,
         journalTextState: journalText,
       });
@@ -1053,7 +1072,7 @@ export default function Dashboard() {
           {
             originalJournalText: journalText,
             currentJournalText: currentJournalText,
-            followUpQuestion: followUpQuestion,
+            followUpQuestion: currentFollowUpQuestion,
             cleanFollowUpTranscription: cleanFollowUpTranscription,
             stateSnapshot: {
               currentStep: currentStep,
@@ -1071,7 +1090,7 @@ export default function Dashboard() {
 
       await saveJournalEntry(
         currentJournalText,
-        followUpQuestion,
+        currentFollowUpQuestion,
         cleanFollowUpTranscription,
       );
       setCurrentStep("complete");
@@ -1092,12 +1111,11 @@ export default function Dashboard() {
         errorMessage = error.message;
       }
       setFollowUpResponse(`Error processing audio: ${errorMessage}`);
-      const currentJournalText = journalText || "";
       console.log("Calling saveJournalEntry with error parameters (2):", {
         text: currentJournalText,
         textType: typeof currentJournalText,
         textLength: currentJournalText ? currentJournalText.length : 0,
-        followUpQ: followUpQuestion,
+        followUpQ: currentFollowUpQuestion,
         followUpResp: `Error: ${errorMessage}`,
         journalTextState: journalText,
       });
@@ -1105,14 +1123,14 @@ export default function Dashboard() {
       if (currentJournalText && currentJournalText.trim().length > 0) {
         await saveJournalEntry(
           currentJournalText,
-          followUpQuestion,
+          currentFollowUpQuestion,
           `Error: ${errorMessage}`,
         );
       } else {
         console.error("=== ERROR: EMPTY JOURNAL TEXT IN CATCH HANDLER ===", {
           originalJournalText: journalText,
           currentJournalText: currentJournalText,
-          followUpQuestion: followUpQuestion,
+          followUpQuestion: currentFollowUpQuestion,
           error: errorMessage,
         });
         alert(

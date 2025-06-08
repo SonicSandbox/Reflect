@@ -198,133 +198,84 @@ export const saveJournalEntryAction = async (formData: FormData) => {
   console.log("User authenticated:", user.id);
 
   try {
-    // Log all form data keys for debugging
-    const formDataEntries = Array.from(formData.entries());
-    console.log("=== FORM DATA RECEIVED ===");
-    formDataEntries.forEach(([key, value]) => {
-      console.log(
-        `${key}:`,
-        typeof value === "string"
-          ? `"${value.substring(0, 200)}${value.length > 200 ? "..." : ""}"`
-          : value,
-      );
-    });
+    // Extract and validate form data
+    const content = formData.get("content")?.toString()?.trim();
+    const date = formData.get("date")?.toString()?.trim();
+    const moodScoreStr = formData.get("mood_score")?.toString()?.trim();
+    const followUpQuestion = formData
+      .get("follow_up_question")
+      ?.toString()
+      ?.trim();
+    const followUpResponse = formData
+      .get("follow_up_response")
+      ?.toString()
+      ?.trim();
+    const weather = formData.get("weather")?.toString()?.trim();
 
-    // Extract form data with more robust handling
-    const contentRaw = formData.get("content");
-    const dateRaw = formData.get("date");
-    const moodScoreRaw = formData.get("mood_score");
-    const followUpQuestionRaw = formData.get("follow_up_question");
-    const followUpResponseRaw = formData.get("follow_up_response");
-    const weatherRaw = formData.get("weather");
-
-    console.log("=== RAW FORM VALUES ===");
-    console.log("contentRaw:", contentRaw, "(type:", typeof contentRaw, ")");
-    console.log("dateRaw:", dateRaw, "(type:", typeof dateRaw, ")");
+    console.log("=== EXTRACTED FORM DATA ===");
     console.log(
-      "moodScoreRaw:",
-      moodScoreRaw,
-      "(type:",
-      typeof moodScoreRaw,
-      ")",
+      "content:",
+      content ? `"${content.substring(0, 100)}..."` : "EMPTY",
     );
-    console.log(
-      "followUpQuestionRaw:",
-      followUpQuestionRaw,
-      "(type:",
-      typeof followUpQuestionRaw,
-      ")",
-    );
-    console.log(
-      "followUpResponseRaw:",
-      followUpResponseRaw,
-      "(type:",
-      typeof followUpResponseRaw,
-      ")",
-    );
-    console.log("weatherRaw:", weatherRaw, "(type:", typeof weatherRaw, ")");
-
-    // Convert to strings and validate
-    const content = contentRaw ? String(contentRaw).trim() : "";
-    const date = dateRaw ? String(dateRaw).trim() : "";
-    const moodScore = moodScoreRaw ? String(moodScoreRaw).trim() : "";
-    const followUpQuestion = followUpQuestionRaw
-      ? String(followUpQuestionRaw).trim()
-      : "";
-    const followUpResponse = followUpResponseRaw
-      ? String(followUpResponseRaw).trim()
-      : "";
-    const weather = weatherRaw ? String(weatherRaw).trim() : "";
-
-    console.log("=== PROCESSED VALUES ===");
-    console.log("content:", `"${content}" (length: ${content.length})`);
-    console.log("date:", `"${date}" (length: ${date.length})`);
-    console.log("moodScore:", `"${moodScore}" (length: ${moodScore.length})`);
+    console.log("date:", date);
+    console.log("moodScore:", moodScoreStr);
     console.log(
       "followUpQuestion:",
-      `"${followUpQuestion}" (length: ${followUpQuestion.length})`,
+      followUpQuestion ? `"${followUpQuestion.substring(0, 50)}..."` : "EMPTY",
     );
     console.log(
       "followUpResponse:",
-      `"${followUpResponse}" (length: ${followUpResponse.length})`,
+      followUpResponse ? `"${followUpResponse.substring(0, 50)}..."` : "EMPTY",
     );
-    console.log("weather:", `"${weather}" (length: ${weather.length})`);
+    console.log("weather:", weather);
 
     // Validate required fields
-    if (!content || content === "") {
-      console.error("=== VALIDATION ERROR: CONTENT ===");
-      console.error("Content is empty or null:", {
-        contentRaw,
-        content,
-        contentLength: content.length,
-        contentType: typeof content,
-      });
-      return { error: "Content is required and cannot be empty" };
+    if (!content) {
+      console.error("Content is required");
+      return { error: "Content is required" };
     }
 
-    if (!date || date === "") {
-      console.error("=== VALIDATION ERROR: DATE ===");
-      console.error("Date is empty or null:", {
-        dateRaw,
-        date,
-        dateLength: date.length,
-        dateType: typeof date,
-      });
-      return { error: "Date is required and cannot be empty" };
+    if (!date) {
+      console.error("Date is required");
+      return { error: "Date is required" };
+    }
+
+    // Parse mood score
+    const moodScore = moodScoreStr ? parseInt(moodScoreStr, 10) : null;
+    if (
+      moodScoreStr &&
+      (isNaN(moodScore!) || moodScore! < 1 || moodScore! > 10)
+    ) {
+      console.error("Invalid mood score:", moodScoreStr);
+      return { error: "Mood score must be between 1 and 10" };
     }
 
     // Prepare insert data
-    const insertData = {
+    const insertData: any = {
       user_id: user.id,
       content: content,
       date: date,
-      mood_score: moodScore && moodScore !== "" ? parseInt(moodScore) : null,
-      follow_up_question:
-        followUpQuestion && followUpQuestion !== "" ? followUpQuestion : null,
-      follow_up_response:
-        followUpResponse && followUpResponse !== "" ? followUpResponse : null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
 
-    console.log("=== INSERT DATA PREPARED ===");
-    console.log(JSON.stringify(insertData, null, 2));
-
-    // Test Supabase connection first
-    console.log("=== TESTING SUPABASE CONNECTION ===");
-    const { data: testData, error: testError } = await supabase
-      .from("journal_entries")
-      .select("count")
-      .limit(1);
-
-    if (testError) {
-      console.error("Supabase connection test failed:", testError);
-      return { error: `Database connection failed: ${testError.message}` };
+    // Add optional fields only if they have values
+    if (moodScore !== null) {
+      insertData.mood_score = moodScore;
     }
 
-    console.log("Supabase connection test successful");
+    if (followUpQuestion) {
+      insertData.follow_up_question = followUpQuestion;
+    }
 
-    // Attempt to insert
+    if (followUpResponse) {
+      insertData.follow_up_response = followUpResponse;
+    }
+
+    console.log("=== FINAL INSERT DATA ===");
+    console.log(JSON.stringify(insertData, null, 2));
+
+    // Insert into database
     console.log("=== ATTEMPTING INSERT ===");
     const { data, error } = await supabase
       .from("journal_entries")
