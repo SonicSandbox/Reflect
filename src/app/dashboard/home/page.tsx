@@ -541,10 +541,7 @@ export default function HomePage() {
 
         {/* Redo Confirmation Dialog */}
         <Dialog open={redoDialogOpen} onOpenChange={setRedoDialogOpen}>
-          <DialogContent
-            className="bg-slate-900 border-slate-700 text-slate-200"
-            overlayClassName="bg-slate-950/80 backdrop-blur-sm"
-          >
+          <DialogContent className="bg-slate-900 border-slate-700 text-slate-200">
             <DialogHeader>
               <DialogTitle className="text-slate-200 flex items-center gap-2">
                 <RotateCcw className="w-5 h-5 text-orange-400" />
