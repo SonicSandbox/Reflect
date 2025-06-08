@@ -180,8 +180,6 @@ export const checkUserSubscription = async (userId: string) => {
 };
 
 export const saveJournalEntryAction = async (formData: FormData) => {
-  console.log("=== SERVER ACTION START ===");
-
   const supabase = await createClient();
 
   // Get current user
@@ -191,11 +189,8 @@ export const saveJournalEntryAction = async (formData: FormData) => {
   } = await supabase.auth.getUser();
 
   if (userError || !user) {
-    console.error("User authentication error:", userError);
     return { error: "User not authenticated" };
   }
-
-  console.log("User authenticated:", user.id);
 
   try {
     // Extract and validate form data
@@ -212,29 +207,6 @@ export const saveJournalEntryAction = async (formData: FormData) => {
       ?.trim();
     const weatherStr = formData.get("weather")?.toString()?.trim();
 
-    console.log("=== EXTRACTED FORM DATA ===");
-    console.log(
-      "content:",
-      content ? `"${content.substring(0, 100)}..."` : "EMPTY",
-    );
-    console.log("date:", date);
-    console.log("=== MOOD SCORE SERVER TRACKING ===");
-    console.log("moodScoreStr raw:", moodScoreStr);
-    console.log("moodScoreStr type:", typeof moodScoreStr);
-    console.log("moodScoreStr length:", moodScoreStr ? moodScoreStr.length : 0);
-    console.log("moodScoreStr is empty string:", moodScoreStr === "");
-    console.log("moodScoreStr is null:", moodScoreStr === null);
-    console.log("moodScoreStr is undefined:", moodScoreStr === undefined);
-    console.log(
-      "followUpQuestion:",
-      followUpQuestion ? `"${followUpQuestion.substring(0, 50)}..."` : "EMPTY",
-    );
-    console.log(
-      "followUpResponse:",
-      followUpResponse ? `"${followUpResponse.substring(0, 50)}..."` : "EMPTY",
-    );
-    console.log("weatherStr:", weatherStr);
-
     // Validate required fields
     if (!content) {
       console.error("Content is required");
@@ -247,17 +219,15 @@ export const saveJournalEntryAction = async (formData: FormData) => {
     }
 
     // Parse mood score
-    console.log("=== MOOD SCORE PARSING ===");
-    const moodScore = moodScoreStr ? parseInt(moodScoreStr, 10) : null;
-    console.log("Parsed moodScore:", moodScore);
-    console.log("moodScore type:", typeof moodScore);
-    console.log("moodScore is null:", moodScore === null);
+    let moodScore: number | null = null;
+    if (moodScoreStr && moodScoreStr.trim() !== "") {
+      const parsed = parseInt(moodScoreStr, 10);
+      if (!isNaN(parsed)) {
+        moodScore = parsed;
+      }
+    }
 
-    if (
-      moodScoreStr &&
-      (isNaN(moodScore!) || moodScore! < 1 || moodScore! > 10)
-    ) {
-      console.error("Invalid mood score:", moodScoreStr);
+    if (moodScore !== null && (moodScore < 1 || moodScore > 10)) {
       return { error: "Mood score must be between 1 and 10" };
     }
 
@@ -271,16 +241,8 @@ export const saveJournalEntryAction = async (formData: FormData) => {
     };
 
     // Add optional fields only if they have values
-    console.log("=== MOOD SCORE INSERT DATA ===");
-    console.log("moodScore before null check:", moodScore);
-    console.log("moodScore !== null:", moodScore !== null);
-
     if (moodScore !== null) {
-      console.log("Adding mood_score to insertData:", moodScore);
       insertData.mood_score = moodScore;
-      console.log("insertData.mood_score set to:", insertData.mood_score);
-    } else {
-      console.log("moodScore is null, not adding to insertData");
     }
 
     if (followUpQuestion) {
@@ -315,14 +277,7 @@ export const saveJournalEntryAction = async (formData: FormData) => {
       }
     }
 
-    console.log("=== FINAL INSERT DATA (BEFORE DB CALL) ===");
-    console.log(JSON.stringify(insertData, null, 2));
-
-    console.log("=== FINAL INSERT DATA ===");
-    console.log(JSON.stringify(insertData, null, 2));
-
     // Insert into database
-    console.log("=== ATTEMPTING INSERT ===");
     const { data, error } = await supabase
       .from("journal_entries")
       .insert(insertData)
@@ -330,28 +285,11 @@ export const saveJournalEntryAction = async (formData: FormData) => {
       .single();
 
     if (error) {
-      console.error("=== SUPABASE INSERT ERROR ===");
-      console.error("Error details:", {
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
-        code: error.code,
-      });
       return { error: `Database insert failed: ${error.message}` };
     }
 
-    console.log("=== INSERT SUCCESSFUL ===");
-    console.log("Saved data:", data);
-    console.log("=== SERVER ACTION END ===");
-
     return { data, success: true };
   } catch (error) {
-    console.error("=== UNEXPECTED ERROR ===");
-    console.error("Error in saveJournalEntryAction:", error);
-    console.error(
-      "Error stack:",
-      error instanceof Error ? error.stack : "No stack trace",
-    );
     return {
       error: `Unexpected error: ${error instanceof Error ? error.message : "Unknown error"}`,
     };

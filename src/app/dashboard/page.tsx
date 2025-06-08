@@ -79,8 +79,11 @@ export default function Dashboard() {
   const [hasJournaledToday, setHasJournaledToday] = useState<boolean | null>(
     null,
   );
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
+
     const getUser = async () => {
       const {
         data: { user },
@@ -365,10 +368,6 @@ export default function Dashboard() {
 
   const startRecording = async () => {
     try {
-      // Capture the current mood score value to use later
-      const currentMoodScore = selectedScore;
-      console.log("Capturing mood score at recording start:", currentMoodScore);
-
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream);
       const chunks: BlobPart[] = [];
@@ -383,7 +382,7 @@ export default function Dashboard() {
         const blob = new Blob(chunks, { type: "audio/wav" });
         setAudioBlob(blob);
         stream.getTracks().forEach((track) => track.stop());
-        processAudio(blob, currentMoodScore);
+        processAudio(blob);
       };
 
       recorder.start();
@@ -402,9 +401,8 @@ export default function Dashboard() {
     }
   };
 
-  const processAudio = async (audioBlob: Blob, moodScore: number | null) => {
+  const processAudio = async (audioBlob: Blob) => {
     setIsProcessing(true);
-    console.log("Processing audio with mood score:", moodScore);
 
     try {
       // Create FormData to send the audio file
@@ -542,22 +540,18 @@ export default function Dashboard() {
       if (followUpQ && followUpQ.trim()) {
         setCurrentStep("followUpQuestion");
         // Auto-start recording after showing the follow-up question
-        // Pass the transcription directly to avoid state timing issues
         setTimeout(() => {
           setCurrentStep("followUpRecording");
-          startFollowUpRecording(cleanTranscription, followUpQ, moodScore);
+          startFollowUpRecording(cleanTranscription, followUpQ);
         }, 3000);
       } else {
-        // Generate tags before saving - COMMENTED OUT FOR MANUAL TAGGING
-        // const tags = await generateTags({ initial: cleanTranscription });
-
         // Save to database without follow-up
         await saveJournalEntry(
           cleanTranscription,
           null,
           null,
           null, // No auto tags
-          moodScore, // Use the passed mood score instead of selectedScore state
+          selectedScore,
         );
         setCurrentStep("complete");
       }
@@ -681,8 +675,6 @@ Limit to 3-5 emotions and 3-5 topics maximum.`,
     tags?: { emotions?: string[]; topics?: string[] } | null,
     moodScore?: number | null,
   ) => {
-    console.log("=== SAVE JOURNAL ENTRY CALLED ===");
-    console.log("Received mood score:", moodScore);
     if (!user) {
       console.error("No user found when trying to save journal entry");
       return;
@@ -724,19 +716,7 @@ Limit to 3-5 emotions and 3-5 topics maximum.`,
       // Use server action instead of direct client insert
       const formData = new FormData();
       const currentDate = new Date().toISOString().split("T")[0];
-      // Use the passed moodScore parameter directly - don't fall back to selectedScore state
-      const currentMoodScore = moodScore;
-
-      console.log("=== MOOD SCORE TRACKING ===");
-      console.log("passed moodScore:", moodScore);
-      console.log("currentMoodScore (final):", currentMoodScore);
-      console.log("currentMoodScore type:", typeof currentMoodScore);
-      console.log("currentMoodScore is null:", currentMoodScore === null);
-      console.log(
-        "currentMoodScore is undefined:",
-        currentMoodScore === undefined,
-      );
-      console.log("currentMoodScore truthy check:", !!currentMoodScore);
+      const currentMoodScore = moodScore || selectedScore;
 
       // Append data to FormData
       formData.append("content", cleanText);
@@ -744,7 +724,6 @@ Limit to 3-5 emotions and 3-5 topics maximum.`,
 
       if (currentMoodScore !== null && currentMoodScore !== undefined) {
         formData.append("mood_score", currentMoodScore.toString());
-        console.log("Mood score appended:", currentMoodScore);
       }
       if (followUpQ && followUpQ.trim()) {
         formData.append("follow_up_question", followUpQ.trim());
@@ -754,7 +733,7 @@ Limit to 3-5 emotions and 3-5 topics maximum.`,
       }
 
       // Add tags if available
-      const allTags = [];
+      const allTags: string[] = [];
       if (tags?.emotions && tags.emotions.length > 0) {
         allTags.push(...tags.emotions);
       }
@@ -794,9 +773,7 @@ Limit to 3-5 emotions and 3-5 topics maximum.`,
   const startFollowUpRecording = async (
     initialText?: string,
     followUpQ?: string,
-    moodScore?: number | null,
   ) => {
-    console.log("Starting follow-up recording with mood score:", moodScore);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream);
@@ -812,7 +789,7 @@ Limit to 3-5 emotions and 3-5 topics maximum.`,
         const blob = new Blob(chunks, { type: "audio/wav" });
         setAudioBlob(blob);
         stream.getTracks().forEach((track) => track.stop());
-        processFollowUpAudio(blob, initialText, followUpQ, moodScore);
+        processFollowUpAudio(blob, initialText, followUpQ);
       };
 
       recorder.start();
@@ -835,9 +812,7 @@ Limit to 3-5 emotions and 3-5 topics maximum.`,
     audioBlob: Blob,
     initialText?: string,
     followUpQ?: string,
-    moodScore?: number | null,
   ) => {
-    console.log("Processing follow-up audio with mood score:", moodScore);
     setIsProcessing(true);
 
     // Use passed parameters or fall back to state
@@ -887,7 +862,7 @@ Limit to 3-5 emotions and 3-5 topics maximum.`,
             currentFollowUpQuestion,
             `Error: ${errorMessage}`,
             null, // No auto tags
-            moodScore, // Use the passed mood score instead of selectedScore state
+            selectedScore,
           );
         } else {
           console.error("ERROR: Empty journal text in error handler");
@@ -945,18 +920,12 @@ Limit to 3-5 emotions and 3-5 topics maximum.`,
         return;
       }
 
-      // Generate tags with both responses - COMMENTED OUT FOR MANUAL TAGGING
-      // const tags = await generateTags({
-      //   initial: currentJournalText,
-      //   followUp: cleanFollowUpTranscription,
-      // });
-
       await saveJournalEntry(
         currentJournalText,
         currentFollowUpQuestion,
         cleanFollowUpTranscription,
         null, // No auto tags
-        moodScore, // Use the passed mood score instead of selectedScore state
+        selectedScore,
       );
       setCurrentStep("complete");
     } catch (error) {
@@ -974,7 +943,7 @@ Limit to 3-5 emotions and 3-5 topics maximum.`,
           currentFollowUpQuestion,
           `Error: ${errorMessage}`,
           null, // No auto tags
-          moodScore, // Use the passed mood score instead of selectedScore state
+          selectedScore,
         );
       } else {
         console.error("ERROR: Empty journal text in catch handler");
@@ -1050,7 +1019,7 @@ Limit to 3-5 emotions and 3-5 topics maximum.`,
   // Move useEffect hooks before any conditional returns to avoid hook order issues
   useEffect(() => {
     const checkTodayEntry = async () => {
-      if (!user) return;
+      if (!user || !mounted) return;
 
       const today = new Date().toISOString().split("T")[0];
       const { data } = await supabase
@@ -1068,12 +1037,12 @@ Limit to 3-5 emotions and 3-5 topics maximum.`,
       }
     };
 
-    if (user && !loading) {
+    if (user && !loading && mounted) {
       checkTodayEntry();
     }
-  }, [user, loading, supabase]);
+  }, [user, loading, supabase, mounted]);
 
-  if (loading) {
+  if (!mounted || loading) {
     return (
       <div className="fixed inset-0 bg-slate-950 flex items-center justify-center">
         <div className="text-center relative">
@@ -1134,7 +1103,7 @@ Limit to 3-5 emotions and 3-5 topics maximum.`,
   }
 
   // Show loading while checking today's entry
-  if (hasJournaledToday === null && user && !loading) {
+  if (hasJournaledToday === null && user && !loading && mounted) {
     return (
       <div className="fixed inset-0 bg-slate-950 flex items-center justify-center">
         <div className="text-center relative">
@@ -1160,7 +1129,7 @@ Limit to 3-5 emotions and 3-5 topics maximum.`,
     );
   }
 
-  if (!hasJournaledToday) {
+  if (mounted && !hasJournaledToday) {
     return (
       <SubscriptionCheck>
         <div className="fixed inset-0 bg-slate-950 flex flex-col">
@@ -1308,7 +1277,6 @@ Limit to 3-5 emotions and 3-5 topics maximum.`,
                       key={score}
                       onClick={() => {
                         setSelectedScore(score);
-                        console.log("User selected mood score:", score);
                         // Move to next step after selection
                         setTimeout(() => {
                           setCurrentStep("questionDisplay");
@@ -1792,7 +1760,7 @@ Limit to 3-5 emotions and 3-5 topics maximum.`,
                   onClick={() => {
                     // Save any remaining custom tags before leaving
                     if (customTags.length > 0) {
-                      const allCurrentTags = [];
+                      const allCurrentTags: string[] = [];
                       if (generatedTags?.emotions)
                         allCurrentTags.push(...generatedTags.emotions);
                       if (generatedTags?.topics)

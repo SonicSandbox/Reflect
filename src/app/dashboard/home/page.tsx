@@ -19,13 +19,13 @@ import { User } from "@supabase/supabase-js";
 import { Tables } from "@/types/supabase";
 import { redirect } from "next/navigation";
 
-interface JournalEntry extends Omit<Tables<"journal_entries">, "weather"> {
+type JournalEntry = Tables<"journal_entries"> & {
   weather?: {
     temp: number;
     condition: string;
     location: string;
   } | null;
-}
+};
 
 export default function HomePage() {
   const [user, setUser] = useState<User | null>(null);
