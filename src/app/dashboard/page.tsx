@@ -2,7 +2,14 @@
 
 import DashboardNavbar from "@/components/dashboard-navbar";
 import { createClient } from "../../../supabase/client";
-import { InfoIcon, UserCircle, Home, MapPin, RefreshCw } from "lucide-react";
+import {
+  InfoIcon,
+  UserCircle,
+  Home,
+  MapPin,
+  RefreshCw,
+  Mic,
+} from "lucide-react";
 import { redirect } from "next/navigation";
 import { SubscriptionCheck } from "@/components/subscription-check";
 import { Button } from "@/components/ui/button";
@@ -41,10 +48,36 @@ export default function Dashboard() {
     | "launch"
     | "dailyBrief"
     | "scoreSelection"
+    | "questionDisplay"
     | "audioRecording"
+    | "processing"
+    | "followUpQuestion"
+    | "followUpRecording"
+    | "followUpProcessing"
+    | "complete"
     | "locationSetup"
   >("launch");
   const [selectedScore, setSelectedScore] = useState<number | null>(null);
+  const [currentQuestion, setCurrentQuestion] = useState<string>("");
+  const [displayedWords, setDisplayedWords] = useState<string[]>([]);
+  const [isRecording, setIsRecording] = useState(false);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(
+    null,
+  );
+  const [journalText, setJournalText] = useState<string>("");
+  const [followUpQuestion, setFollowUpQuestion] = useState<string>("");
+  const [followUpResponse, setFollowUpResponse] = useState<string>("");
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [generatedTags, setGeneratedTags] = useState<{
+    emotions?: string[];
+    topics?: string[];
+  } | null>(null);
+  const [customTags, setCustomTags] = useState<string[]>([]);
+  const [newTag, setNewTag] = useState<string>("");
+  const [hasJournaledToday, setHasJournaledToday] = useState<boolean | null>(
+    null,
+  );
 
   useEffect(() => {
     const getUser = async () => {
@@ -243,6 +276,509 @@ export default function Dashboard() {
     setZipCode("");
   };
 
+  const removeTag = (tagToRemove: string, type: "emotion" | "topic") => {
+    if (type === "emotion" && generatedTags?.emotions) {
+      setGeneratedTags({
+        ...generatedTags,
+        emotions: generatedTags.emotions.filter((tag) => tag !== tagToRemove),
+      });
+    } else if (type === "topic" && generatedTags?.topics) {
+      setGeneratedTags({
+        ...generatedTags,
+        topics: generatedTags.topics.filter((tag) => tag !== tagToRemove),
+      });
+    }
+    // Also remove from custom tags if it exists there
+    setCustomTags((prev) => prev.filter((tag) => tag !== tagToRemove));
+  };
+
+  const addCustomTag = () => {
+    if (newTag.trim() && !customTags.includes(newTag.trim())) {
+      setCustomTags((prev) => [...prev, newTag.trim()]);
+      setNewTag("");
+    }
+  };
+
+  const removeCustomTag = (tagToRemove: string) => {
+    setCustomTags((prev) => prev.filter((tag) => tag !== tagToRemove));
+  };
+
+  const questions = [
+    "What was the highlight of your day?",
+    "What were the 3 parts of your day?",
+    "What is something you want to remember about today?",
+  ];
+
+  const startQuestionDisplay = () => {
+    const randomQuestion =
+      questions[Math.floor(Math.random() * questions.length)];
+    setCurrentQuestion(randomQuestion);
+    setDisplayedWords([]);
+
+    const words = randomQuestion.split(" ");
+    words.forEach((word, index) => {
+      setTimeout(() => {
+        setDisplayedWords((prev) => [...prev, word]);
+
+        // Start recording after the last word appears
+        if (index === words.length - 1) {
+          setTimeout(() => {
+            setCurrentStep("audioRecording");
+            startRecording();
+          }, 1000);
+        }
+      }, index * 150); // 150ms delay between words
+    });
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks: BlobPart[] = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: "audio/wav" });
+        setAudioBlob(blob);
+        stream.getTracks().forEach((track) => track.stop());
+        processAudio(blob);
+      };
+
+      recorder.start();
+      setMediaRecorder(recorder);
+      setIsRecording(true);
+    } catch (error) {
+      console.error("Error starting recording:", error);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder && isRecording) {
+      mediaRecorder.stop();
+      setIsRecording(false);
+      setCurrentStep("processing");
+    }
+  };
+
+  const processAudio = async (audioBlob: Blob) => {
+    setIsProcessing(true);
+
+    try {
+      // Create FormData to send the audio file
+      const formData = new FormData();
+      formData.append("audio", audioBlob, "recording.wav");
+
+      // Send to webhook endpoint
+      const webhookUrl = process.env.NEXT_PUBLIC_SPEECH_TO_TEXT_WEBHOOK_URL;
+
+      if (!webhookUrl) {
+        throw new Error("Speech-to-text webhook URL not configured");
+      }
+
+      console.log("Sending audio to webhook:", webhookUrl);
+      console.log("Audio blob size:", audioBlob.size, "bytes");
+
+      const response = await fetch(webhookUrl, {
+        method: "POST",
+        body: formData,
+      });
+
+      console.log("Response status:", response.status);
+      console.log(
+        "Response headers:",
+        Object.fromEntries(response.headers.entries()),
+      );
+
+      let result;
+      let responseText = "";
+
+      try {
+        responseText = await response.text();
+        console.log("Raw response:", responseText);
+
+        // Try to parse as JSON
+        result = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error("Failed to parse response as JSON:", parseError);
+        result = {
+          error: `Invalid JSON response: ${responseText.substring(0, 200)}...`,
+        };
+      }
+
+      // Log the complete response structure for debugging
+      console.log("Complete webhook response structure:", {
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries()),
+        result: result,
+        resultKeys: Object.keys(result || {}),
+        resultType: typeof result,
+      });
+
+      if (!response.ok || result.error) {
+        // Handle error response with more details
+        let errorMessage = "";
+
+        if (response.status === 500) {
+          errorMessage = `Server error (500): ${result.error || result.message || responseText || "Internal server error"}`;
+        } else if (response.status === 400) {
+          errorMessage = `Bad request (400): ${result.error || result.message || "Invalid request format"}`;
+        } else if (response.status === 413) {
+          errorMessage = `File too large (413): Audio file exceeds size limit`;
+        } else if (response.status === 429) {
+          errorMessage = `Rate limited (429): Too many requests, please try again later`;
+        } else {
+          errorMessage =
+            result.error ||
+            result.message ||
+            `HTTP error! status: ${response.status}`;
+        }
+
+        console.error("Webhook error details:", {
+          status: response.status,
+          statusText: response.statusText,
+          result,
+          responseText: responseText.substring(0, 500),
+        });
+
+        setJournalText(`Error processing audio: ${errorMessage}`);
+        setCurrentStep("complete");
+        return;
+      }
+
+      // Handle successful response - extract text-to-speech and follow-up-q
+      let transcription = "";
+      let followUpQ = "";
+
+      // Check for the new JSON format
+      if (result["text-to-speech"]) {
+        transcription = result["text-to-speech"];
+      } else if (result.text) {
+        transcription = result.text;
+      } else if (result.transcription) {
+        transcription = result.transcription;
+      } else if (result.transcript) {
+        transcription = result.transcript;
+      } else if (result.data && result.data.text) {
+        transcription = result.data.text;
+      } else if (result.data && result.data.transcription) {
+        transcription = result.data.transcription;
+      } else if (result.data && result.data.transcript) {
+        transcription = result.data.transcript;
+      } else if (
+        result.message &&
+        typeof result.message === "string" &&
+        !result.error
+      ) {
+        // Sometimes the transcription is in the message field
+        transcription = result.message;
+      } else if (typeof result === "string") {
+        // Sometimes the entire response is just the transcription string
+        transcription = result;
+      } else {
+        // If we can't find the transcription, show what we got
+        transcription = `No transcription found. Response structure: ${JSON.stringify(result, null, 2)}`;
+      }
+
+      // Extract follow-up question
+      if (result["follow-up-q"]) {
+        followUpQ = result["follow-up-q"];
+      }
+
+      console.log("Extracted transcription:", transcription);
+      console.log("Extracted follow-up question:", followUpQ);
+
+      setJournalText(transcription);
+      setFollowUpQuestion(followUpQ);
+
+      // If we have a follow-up question, show it; otherwise complete
+      if (followUpQ && followUpQ.trim()) {
+        setCurrentStep("followUpQuestion");
+        // Auto-start recording after showing the follow-up question
+        setTimeout(() => {
+          setCurrentStep("followUpRecording");
+          startFollowUpRecording();
+        }, 3000);
+      } else {
+        // Save to database without follow-up
+        await saveJournalEntry(transcription, null, null);
+        setCurrentStep("complete");
+      }
+    } catch (error) {
+      console.error("Error processing audio:", error);
+
+      let errorMessage = "Unknown error occurred";
+      if (error instanceof Error) {
+        if (error.name === "TypeError" && error.message.includes("fetch")) {
+          errorMessage =
+            "Network error: Unable to connect to speech-to-text service";
+        } else {
+          errorMessage = error.message;
+        }
+      }
+
+      setJournalText(`Error processing audio: ${errorMessage}`);
+      setCurrentStep("complete");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const generateTags = async (responses: {
+    initial: string;
+    followUp?: string;
+  }) => {
+    try {
+      const tagGenerationUrl = process.env.NEXT_PUBLIC_TAG_GENERATION_URL;
+      const tagGenerationApiKey =
+        process.env.NEXT_PUBLIC_TAG_GENERATION_API_KEY;
+
+      console.log("Tag generation config:", {
+        url: tagGenerationUrl,
+        hasApiKey: !!tagGenerationApiKey,
+      });
+
+      if (!tagGenerationUrl) {
+        console.log("Tag generation URL not configured");
+        return null;
+      }
+
+      if (!tagGenerationApiKey) {
+        console.log("Tag generation API key not configured");
+        return null;
+      }
+
+      const payload = {
+        responses: {
+          initial_response: responses.initial,
+          follow_up_response: responses.followUp || null,
+        },
+      };
+
+      console.log("Sending tag generation request:", {
+        url: tagGenerationUrl,
+        payload,
+      });
+
+      const response = await fetch(tagGenerationUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": tagGenerationApiKey,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      console.log("Tag generation response status:", response.status);
+      console.log(
+        "Tag generation response headers:",
+        Object.fromEntries(response.headers.entries()),
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Tag generation failed:", {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorText,
+        });
+        return null;
+      }
+
+      const tags = await response.json();
+      console.log("Generated tags:", tags);
+      setGeneratedTags(tags);
+      return tags;
+    } catch (error) {
+      console.error("Error generating tags:", error);
+      return null;
+    }
+  };
+
+  const saveJournalEntry = async (
+    text: string,
+    followUpQ?: string | null,
+    followUpResp?: string | null,
+  ) => {
+    if (!user) return;
+
+    try {
+      // Generate tags from responses
+      const tags = await generateTags({
+        initial: text,
+        followUp: followUpResp || undefined,
+      });
+
+      // Combine generated tags with custom tags
+      const allEmotions = [
+        ...(tags?.emotions || []),
+        ...customTags.filter(
+          (tag) =>
+            !tags?.emotions?.includes(tag) && !tags?.topics?.includes(tag),
+        ),
+      ];
+      const allTopics = [
+        ...(tags?.topics || []),
+        ...customTags.filter(
+          (tag) =>
+            !tags?.emotions?.includes(tag) && !tags?.topics?.includes(tag),
+        ),
+      ];
+
+      const { error } = await supabase.from("journal_entries").insert({
+        user_id: user.id,
+        content: text,
+        date: new Date().toISOString().split("T")[0],
+        mood_score: selectedScore,
+        follow_up_question: followUpQ,
+        follow_up_response: followUpResp,
+        emotions: allEmotions.length > 0 ? allEmotions : null,
+        topics: allTopics.length > 0 ? allTopics : null,
+        created_at: new Date().toISOString(),
+      });
+
+      if (error) {
+        console.error("Error saving journal entry:", error);
+      } else {
+        console.log("Journal entry saved successfully with tags:", {
+          emotions: allEmotions,
+          topics: allTopics,
+        });
+      }
+    } catch (error) {
+      console.error("Error saving journal entry:", error);
+    }
+  };
+
+  const startFollowUpRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks: BlobPart[] = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: "audio/wav" });
+        setAudioBlob(blob);
+        stream.getTracks().forEach((track) => track.stop());
+        processFollowUpAudio(blob);
+      };
+
+      recorder.start();
+      setMediaRecorder(recorder);
+      setIsRecording(true);
+    } catch (error) {
+      console.error("Error starting follow-up recording:", error);
+    }
+  };
+
+  const stopFollowUpRecording = () => {
+    if (mediaRecorder && isRecording) {
+      mediaRecorder.stop();
+      setIsRecording(false);
+      setCurrentStep("followUpProcessing");
+    }
+  };
+
+  const processFollowUpAudio = async (audioBlob: Blob) => {
+    setIsProcessing(true);
+
+    try {
+      // Create FormData to send the audio file
+      const formData = new FormData();
+      formData.append("audio", audioBlob, "followup-recording.wav");
+
+      // Send to webhook endpoint
+      const webhookUrl = process.env.NEXT_PUBLIC_SPEECH_TO_TEXT_WEBHOOK_URL;
+
+      if (!webhookUrl) {
+        throw new Error("Speech-to-text webhook URL not configured");
+      }
+
+      const response = await fetch(webhookUrl, {
+        method: "POST",
+        body: formData,
+      });
+
+      let result;
+      let responseText = "";
+
+      try {
+        responseText = await response.text();
+        result = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error("Failed to parse response as JSON:", parseError);
+        result = {
+          error: `Invalid JSON response: ${responseText.substring(0, 200)}...`,
+        };
+      }
+
+      if (!response.ok || result.error) {
+        let errorMessage =
+          result.error ||
+          result.message ||
+          `HTTP error! status: ${response.status}`;
+        setFollowUpResponse(`Error processing audio: ${errorMessage}`);
+        await saveJournalEntry(
+          journalText,
+          followUpQuestion,
+          `Error: ${errorMessage}`,
+        );
+        setCurrentStep("complete");
+        return;
+      }
+
+      // Extract transcription from follow-up response
+      let transcription = "";
+      if (result["text-to-speech"]) {
+        transcription = result["text-to-speech"];
+      } else if (result.text) {
+        transcription = result.text;
+      } else if (result.transcription) {
+        transcription = result.transcription;
+      } else if (result.transcript) {
+        transcription = result.transcript;
+      } else if (typeof result === "string") {
+        transcription = result;
+      } else {
+        transcription = `No transcription found in follow-up response`;
+      }
+
+      console.log("Follow-up response transcription:", transcription);
+      setFollowUpResponse(transcription);
+
+      // Save complete journal entry with follow-up
+      await saveJournalEntry(journalText, followUpQuestion, transcription);
+      setCurrentStep("complete");
+    } catch (error) {
+      console.error("Error processing follow-up audio:", error);
+      let errorMessage = "Unknown error occurred";
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      setFollowUpResponse(`Error processing audio: ${errorMessage}`);
+      await saveJournalEntry(
+        journalText,
+        followUpQuestion,
+        `Error: ${errorMessage}`,
+      );
+      setCurrentStep("complete");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const requestLocationFromDialog = async () => {
     setLocationStep("requesting");
     setWeatherLoading(true);
@@ -358,13 +894,61 @@ export default function Dashboard() {
     );
   }
 
+  useEffect(() => {
+    const checkTodayEntry = async () => {
+      if (!user) return;
+
+      const today = new Date().toISOString().split("T")[0];
+      const { data } = await supabase
+        .from("journal_entries")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("date", today)
+        .single();
+
+      if (data) {
+        // User has already journaled today, redirect to home
+        window.location.href = "/dashboard/home";
+      } else {
+        setHasJournaledToday(false);
+      }
+    };
+
+    if (user && !loading) {
+      checkTodayEntry();
+    }
+  }, [user, loading, supabase]);
+
   if (!user) {
     return null;
   }
 
-  // For now, we'll always show the Launch view
-  // Later this will be conditional based on whether journal entry exists for today
-  const hasJournaledToday = false;
+  // Show loading while checking today's entry
+  if (hasJournaledToday === null && user && !loading) {
+    return (
+      <div className="fixed inset-0 bg-slate-950 flex items-center justify-center">
+        <div className="text-center relative">
+          <div className="relative w-16 h-16 mx-auto mb-6">
+            <div className="absolute inset-0 rounded-full border-2 border-slate-800"></div>
+            <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-blue-500 animate-spin"></div>
+            <div
+              className="absolute inset-2 rounded-full border border-transparent border-r-blue-400 animate-spin"
+              style={{
+                animationDirection: "reverse",
+                animationDuration: "1.5s",
+              }}
+            ></div>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+            </div>
+          </div>
+          <p className="text-slate-400 text-sm font-light">
+            Checking today's journal...
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (!hasJournaledToday) {
     return (
@@ -372,7 +956,7 @@ export default function Dashboard() {
         <div className="fixed inset-0 bg-slate-950 flex flex-col">
           {/* Home Button at Top Center */}
           <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10">
-            <Link href="/">
+            <Link href="/dashboard/home">
               <Button
                 variant="ghost"
                 size="icon"
@@ -516,7 +1100,8 @@ export default function Dashboard() {
                         setSelectedScore(score);
                         // Move to next step after selection
                         setTimeout(() => {
-                          setCurrentStep("audioRecording");
+                          setCurrentStep("questionDisplay");
+                          startQuestionDisplay();
                         }, 500);
                       }}
                       className={`aspect-square rounded-xl text-lg font-light transition-all duration-200 bg-slate-800/60 text-slate-300 hover:bg-slate-700/60 hover:scale-105 active:scale-95 ${
@@ -597,7 +1182,36 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Audio Recording Screen Placeholder */}
+          {/* Question Display Screen */}
+          <div
+            className={`absolute inset-0 flex items-center justify-center transition-all duration-700 ease-out ${
+              currentStep === "questionDisplay"
+                ? "opacity-100 translate-y-0"
+                : "opacity-0 translate-y-4 pointer-events-none"
+            }`}
+          >
+            <div className="text-center px-6 max-w-2xl">
+              <div className="mb-8">
+                <p className="text-slate-400 text-sm mb-4">Journal Prompt</p>
+                <div className="text-2xl md:text-3xl font-light text-slate-200 leading-relaxed min-h-[4rem] flex items-center justify-center">
+                  {displayedWords.map((word, index) => (
+                    <span
+                      key={index}
+                      className="inline-block mr-2 animate-typewriter-fade"
+                      style={{
+                        animationDelay: `${index * 0.1}s`,
+                        animationFillMode: "both",
+                      }}
+                    >
+                      {word}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Audio Recording Screen */}
           <div
             className={`absolute inset-0 flex items-center justify-center transition-all duration-500 ${
               currentStep === "audioRecording"
@@ -605,13 +1219,362 @@ export default function Dashboard() {
                 : "opacity-0 pointer-events-none"
             }`}
           >
-            <div className="text-center">
-              <h2 className="text-3xl font-light text-slate-200 mb-4">
-                Ready to listen...
-              </h2>
-              <p className="text-slate-400">
-                Audio recording will be implemented next
-              </p>
+            <div className="text-center px-6">
+              <div className="mb-8">
+                <p className="text-slate-400 text-sm mb-4">
+                  Recording your response
+                </p>
+                <h2 className="text-2xl font-light text-slate-200 mb-6">
+                  {currentQuestion}
+                </h2>
+              </div>
+
+              {/* Recording Animation */}
+              <div className="mb-8">
+                <div className="relative w-24 h-24 mx-auto mb-6">
+                  <div className="absolute inset-0 rounded-full bg-red-500/20 animate-pulse"></div>
+                  <div
+                    className="absolute inset-2 rounded-full bg-red-500/40 animate-pulse"
+                    style={{ animationDelay: "0.5s" }}
+                  ></div>
+                  <div
+                    className="absolute inset-4 rounded-full bg-red-500 animate-pulse"
+                    style={{ animationDelay: "1s" }}
+                  ></div>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-4 h-4 bg-red-500 rounded-full animate-ping"></div>
+                  </div>
+                </div>
+                <p className="text-red-400 text-sm font-medium mb-4">
+                  Recording...
+                </p>
+              </div>
+
+              <Button
+                onClick={stopRecording}
+                className="bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-xl"
+                disabled={!isRecording}
+              >
+                Stop Recording
+              </Button>
+            </div>
+          </div>
+
+          {/* Processing Screen */}
+          <div
+            className={`absolute inset-0 flex items-center justify-center transition-all duration-500 ${
+              currentStep === "processing"
+                ? "opacity-100"
+                : "opacity-0 pointer-events-none"
+            }`}
+          >
+            <div className="text-center px-6">
+              <div className="mb-8">
+                <div className="w-16 h-16 mx-auto mb-6">
+                  <div className="w-full h-full border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+                </div>
+                <h2 className="text-2xl font-light text-slate-200 mb-4">
+                  Processing your journal entry...
+                </h2>
+                <p className="text-slate-400 text-sm">
+                  Converting your voice to text
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Follow-up Question Display Screen */}
+          <div
+            className={`absolute inset-0 flex items-center justify-center transition-all duration-500 ${
+              currentStep === "followUpQuestion"
+                ? "opacity-100"
+                : "opacity-0 pointer-events-none"
+            }`}
+          >
+            <div className="text-center px-6 max-w-2xl">
+              <div className="mb-8">
+                <p className="text-slate-400 text-sm mb-4">
+                  Follow-up Question
+                </p>
+                <div className="text-2xl md:text-3xl font-light text-slate-200 leading-relaxed min-h-[4rem] flex items-center justify-center">
+                  {followUpQuestion}
+                </div>
+                <p className="text-slate-500 text-sm mt-4">
+                  Recording will start automatically...
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Follow-up Recording Screen */}
+          <div
+            className={`absolute inset-0 flex items-center justify-center transition-all duration-500 ${
+              currentStep === "followUpRecording"
+                ? "opacity-100"
+                : "opacity-0 pointer-events-none"
+            }`}
+          >
+            <div className="text-center px-6">
+              <div className="mb-8">
+                <p className="text-slate-400 text-sm mb-4">
+                  Recording your follow-up response
+                </p>
+                <h2 className="text-2xl font-light text-slate-200 mb-6">
+                  {followUpQuestion}
+                </h2>
+              </div>
+
+              {/* Recording Animation */}
+              <div className="mb-8">
+                <div className="relative w-24 h-24 mx-auto mb-6">
+                  <div className="absolute inset-0 rounded-full bg-red-500/20 animate-pulse"></div>
+                  <div
+                    className="absolute inset-2 rounded-full bg-red-500/40 animate-pulse"
+                    style={{ animationDelay: "0.5s" }}
+                  ></div>
+                  <div
+                    className="absolute inset-4 rounded-full bg-red-500 animate-pulse"
+                    style={{ animationDelay: "1s" }}
+                  ></div>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-4 h-4 bg-red-500 rounded-full animate-ping"></div>
+                  </div>
+                </div>
+                <p className="text-red-400 text-sm font-medium mb-4">
+                  Recording follow-up response...
+                </p>
+              </div>
+
+              <Button
+                onClick={stopFollowUpRecording}
+                className="bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-xl"
+                disabled={!isRecording}
+              >
+                Stop Recording
+              </Button>
+            </div>
+          </div>
+
+          {/* Follow-up Processing Screen */}
+          <div
+            className={`absolute inset-0 flex items-center justify-center transition-all duration-500 ${
+              currentStep === "followUpProcessing"
+                ? "opacity-100"
+                : "opacity-0 pointer-events-none"
+            }`}
+          >
+            <div className="text-center px-6">
+              <div className="mb-8">
+                <div className="w-16 h-16 mx-auto mb-6">
+                  <div className="w-full h-full border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+                </div>
+                <h2 className="text-2xl font-light text-slate-200 mb-4">
+                  Processing your follow-up response...
+                </h2>
+                <p className="text-slate-400 text-sm">
+                  Converting your voice to text
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Complete Screen */}
+          <div
+            className={`absolute inset-0 flex items-center justify-center transition-all duration-500 ${
+              currentStep === "complete"
+                ? "opacity-100"
+                : "opacity-0 pointer-events-none"
+            }`}
+          >
+            <div className="text-center px-6 max-w-2xl">
+              <div className="mb-8">
+                <div className="w-16 h-16 mx-auto mb-6 bg-green-500/20 rounded-full flex items-center justify-center">
+                  <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
+                    <svg
+                      className="w-4 h-4 text-white"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  </div>
+                </div>
+                <h2 className="text-2xl font-light text-slate-200 mb-4">
+                  Journal entry saved!
+                </h2>
+                <div className="space-y-4 mb-6">
+                  <div className="bg-slate-800/60 rounded-xl p-4 text-left">
+                    <p className="text-slate-400 text-xs mb-2">
+                      Initial Response:
+                    </p>
+                    <p className="text-slate-300 text-sm leading-relaxed">
+                      {journalText}
+                    </p>
+                  </div>
+                  {followUpQuestion && (
+                    <div className="bg-slate-800/60 rounded-xl p-4 text-left">
+                      <p className="text-slate-400 text-xs mb-2">
+                        Follow-up Question:
+                      </p>
+                      <p className="text-slate-300 text-sm leading-relaxed mb-3">
+                        {followUpQuestion}
+                      </p>
+                      <p className="text-slate-400 text-xs mb-2">
+                        Your Response:
+                      </p>
+                      <p className="text-slate-300 text-sm leading-relaxed">
+                        {followUpResponse}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Generated Tags Section */}
+                  {generatedTags?.emotions?.length ||
+                  generatedTags?.topics?.length ||
+                  customTags.length ? (
+                    <div className="bg-slate-800/60 rounded-xl p-4 text-left">
+                      <p className="text-slate-400 text-xs mb-3">
+                        Generated Tags:
+                      </p>
+
+                      {/* Emotions */}
+                      {generatedTags?.emotions &&
+                        generatedTags.emotions.length > 0 && (
+                          <div className="mb-3">
+                            <p className="text-slate-500 text-xs mb-2">
+                              Emotions:
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {generatedTags.emotions.map((emotion, index) => (
+                                <span
+                                  key={index}
+                                  className="inline-flex items-center gap-1 px-2 py-1 bg-blue-500/20 text-blue-300 text-xs rounded-full"
+                                >
+                                  {emotion}
+                                  <button
+                                    onClick={() =>
+                                      removeTag(emotion, "emotion")
+                                    }
+                                    className="ml-1 text-blue-400 hover:text-blue-200 text-xs"
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                      {/* Topics */}
+                      {generatedTags?.topics &&
+                        generatedTags.topics.length > 0 && (
+                          <div className="mb-3">
+                            <p className="text-slate-500 text-xs mb-2">
+                              Topics:
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {generatedTags.topics.map((topic, index) => (
+                                <span
+                                  key={index}
+                                  className="inline-flex items-center gap-1 px-2 py-1 bg-green-500/20 text-green-300 text-xs rounded-full"
+                                >
+                                  {topic}
+                                  <button
+                                    onClick={() => removeTag(topic, "topic")}
+                                    className="ml-1 text-green-400 hover:text-green-200 text-xs"
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                      {/* Custom Tags */}
+                      {customTags.length > 0 && (
+                        <div className="mb-3">
+                          <p className="text-slate-500 text-xs mb-2">
+                            Custom Tags:
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {customTags.map((tag, index) => (
+                              <span
+                                key={index}
+                                className="inline-flex items-center gap-1 px-2 py-1 bg-purple-500/20 text-purple-300 text-xs rounded-full"
+                              >
+                                {tag}
+                                <button
+                                  onClick={() => removeCustomTag(tag)}
+                                  className="ml-1 text-purple-400 hover:text-purple-200 text-xs"
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Add Custom Tag */}
+                      <div className="flex gap-2 mt-3">
+                        <input
+                          type="text"
+                          value={newTag}
+                          onChange={(e) => setNewTag(e.target.value)}
+                          placeholder="Add custom tag..."
+                          className="flex-1 bg-slate-700/60 border border-slate-600 rounded-lg px-3 py-1 text-slate-200 placeholder-slate-500 text-xs focus:outline-none focus:border-blue-500"
+                          onKeyPress={(e) =>
+                            e.key === "Enter" && addCustomTag()
+                          }
+                        />
+                        <button
+                          onClick={addCustomTag}
+                          className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg"
+                          disabled={!newTag.trim()}
+                        >
+                          Add
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-slate-800/60 rounded-xl p-4 text-left">
+                      <p className="text-slate-400 text-xs mb-3">
+                        No tags generated
+                      </p>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={newTag}
+                          onChange={(e) => setNewTag(e.target.value)}
+                          placeholder="Add custom tag..."
+                          className="flex-1 bg-slate-700/60 border border-slate-600 rounded-lg px-3 py-1 text-slate-200 placeholder-slate-500 text-xs focus:outline-none focus:border-blue-500"
+                          onKeyPress={(e) =>
+                            e.key === "Enter" && addCustomTag()
+                          }
+                        />
+                        <button
+                          onClick={addCustomTag}
+                          className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg"
+                          disabled={!newTag.trim()}
+                        >
+                          Add
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <Button
+                  onClick={() => window.location.reload()}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg"
+                >
+                  Return to Dashboard
+                </Button>
+              </div>
             </div>
           </div>
 

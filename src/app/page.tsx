@@ -3,6 +3,7 @@ import Navbar from "@/components/navbar";
 import PricingCard from "@/components/pricing-card";
 import Footer from "@/components/footer";
 import { createClient } from "../../supabase/server";
+import { redirect } from "next/navigation";
 import {
   ArrowUpRight,
   CheckCircle2,
@@ -17,6 +18,11 @@ export default async function Home() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  // Redirect authenticated users to the journal home page
+  if (user) {
+    redirect("/dashboard/home");
+  }
 
   const { data: plans, error } = await supabase.functions.invoke(
     "supabase-functions-get-plans",
