@@ -350,20 +350,16 @@ export default function Dashboard() {
     setCurrentQuestion(randomQuestion);
     setDisplayedWords([]);
 
-    const words = randomQuestion.split(" ");
-    words.forEach((word, index) => {
-      setTimeout(() => {
-        setDisplayedWords((prev) => [...prev, word]);
+    // Show the full question immediately with fade-in animation
+    setTimeout(() => {
+      setDisplayedWords([randomQuestion]);
 
-        // Start recording after the last word appears
-        if (index === words.length - 1) {
-          setTimeout(() => {
-            setCurrentStep("audioRecording");
-            startRecording();
-          }, 1000);
-        }
-      }, index * 150); // 150ms delay between words
-    });
+      // Start recording after the question fades in
+      setTimeout(() => {
+        setCurrentStep("audioRecording");
+        startRecording();
+      }, 1000);
+    }, 100);
   };
 
   const startRecording = async () => {
@@ -1159,7 +1155,7 @@ Limit to 3-5 emotions and 3-5 topics maximum.`,
           >
             <div className="text-center space-y-6">
               <h1 className="text-4xl md:text-6xl font-light text-slate-200 group-hover:text-white transition-colors duration-300">
-                Tap or say Start
+                Tap to Reflect
               </h1>
               <div className="w-16 h-1 bg-blue-500/30 mx-auto rounded-full group-hover:bg-blue-400/50 transition-colors duration-300" />
 
@@ -1373,18 +1369,9 @@ Limit to 3-5 emotions and 3-5 topics maximum.`,
               <div className="mb-8">
                 <p className="text-slate-400 text-sm mb-4">Journal Prompt</p>
                 <div className="text-2xl md:text-3xl font-light text-slate-200 leading-relaxed min-h-[4rem] flex items-center justify-center">
-                  {displayedWords.map((word, index) => (
-                    <span
-                      key={index}
-                      className="inline-block mr-2 animate-typewriter-fade"
-                      style={{
-                        animationDelay: `${index * 0.1}s`,
-                        animationFillMode: "both",
-                      }}
-                    >
-                      {word}
-                    </span>
-                  ))}
+                  {displayedWords.length > 0 && (
+                    <div className="animate-fade-in">{displayedWords[0]}</div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1476,7 +1463,7 @@ Limit to 3-5 emotions and 3-5 topics maximum.`,
                   Follow-up Question
                 </p>
                 <div className="text-2xl md:text-3xl font-light text-slate-200 leading-relaxed min-h-[4rem] flex items-center justify-center">
-                  {followUpQuestion}
+                  <div className="animate-fade-in">{followUpQuestion}</div>
                 </div>
                 <p className="text-slate-500 text-sm mt-4">
                   Recording will start automatically...
@@ -1583,7 +1570,7 @@ Limit to 3-5 emotions and 3-5 topics maximum.`,
                   </div>
                 </div>
                 <h2 className="text-2xl font-light text-slate-200 mb-4">
-                  Journal entry saved!
+                  Reflection entry saved!
                 </h2>
                 <div className="space-y-4 mb-6">
                   <div className="bg-slate-800/60 rounded-xl p-4 text-left">

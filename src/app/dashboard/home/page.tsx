@@ -18,6 +18,7 @@ import { useEffect, useState } from "react";
 import { User } from "@supabase/supabase-js";
 import { Tables } from "@/types/supabase";
 import { redirect } from "next/navigation";
+import UserProfile from "@/components/user-profile";
 
 type JournalEntry = Tables<"journal_entries"> & {
   weather?: {
@@ -330,6 +331,7 @@ export default function HomePage() {
                       <Home className="h-5 w-5" />
                     </Button>
                   </Link>
+                  <UserProfile />
                 </>
               ) : (
                 <Button
@@ -366,7 +368,7 @@ export default function HomePage() {
                 </div>
               </div>
               <h2 className="text-2xl font-light text-slate-200 mb-2">
-                {isEditing ? "Edit Journal Entry" : "Journal Entry"}
+                {isEditing ? "Edit Reflection Entry" : "Reflection Entry"}
               </h2>
               <p className="text-slate-400 text-sm">
                 {formatDate(selectedEntry.date).dayOfWeek},{" "}
@@ -406,7 +408,7 @@ export default function HomePage() {
 
             <div className="space-y-4">
               <div className="bg-slate-800/60 rounded-xl p-4 text-left">
-                <p className="text-slate-400 text-xs mb-2">Journal Entry:</p>
+                <p className="text-slate-400 text-xs mb-2">Reflection Entry:</p>
                 {isEditing ? (
                   <Textarea
                     value={editedEntry?.content || ""}
@@ -539,7 +541,10 @@ export default function HomePage() {
 
         {/* Redo Confirmation Dialog */}
         <Dialog open={redoDialogOpen} onOpenChange={setRedoDialogOpen}>
-          <DialogContent className="bg-slate-900 border-slate-700 text-slate-200">
+          <DialogContent
+            className="bg-slate-900 border-slate-700 text-slate-200"
+            overlayClassName="bg-slate-950/80 backdrop-blur-sm"
+          >
             <DialogHeader>
               <DialogTitle className="text-slate-200 flex items-center gap-2">
                 <RotateCcw className="w-5 h-5 text-orange-400" />
@@ -560,7 +565,7 @@ export default function HomePage() {
                 <Button
                   onClick={() => setRedoDialogOpen(false)}
                   variant="outline"
-                  className="flex-1 border-slate-600 text-slate-200 hover:bg-slate-800"
+                  className="flex-1 border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-slate-200"
                 >
                   Cancel
                 </Button>
@@ -587,21 +592,24 @@ export default function HomePage() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-light text-slate-200">
-                Journal Entries
+                Reflections
               </h1>
               <p className="text-slate-400 text-sm mt-1">
                 {entries.length} {entries.length === 1 ? "entry" : "entries"}
               </p>
             </div>
-            <Link href="/dashboard">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="rounded-full bg-slate-800/50 hover:bg-slate-700/50 text-slate-300"
-              >
-                <Home className="h-5 w-5" />
-              </Button>
-            </Link>
+            <div className="flex gap-2">
+              <Link href="/dashboard">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-full bg-slate-800/50 hover:bg-slate-700/50 text-slate-300"
+                >
+                  <Home className="h-5 w-5" />
+                </Button>
+              </Link>
+              <UserProfile />
+            </div>
           </div>
         </div>
       </div>
@@ -626,14 +634,14 @@ export default function HomePage() {
               </svg>
             </div>
             <h3 className="text-xl font-light text-slate-300 mb-2">
-              No journal entries yet
+              No Reflections yet
             </h3>
             <p className="text-slate-500 text-sm mb-6">
               Start your journaling journey by creating your first entry
             </p>
             <Link href="/dashboard">
               <Button className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg">
-                Create First Entry
+                Create First Reflection
               </Button>
             </Link>
           </div>

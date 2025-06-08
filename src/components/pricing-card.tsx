@@ -22,7 +22,7 @@ export default function PricingCard({
   const handleCheckout = async (priceId: string) => {
     if (!user) {
       // Redirect to login if user is not authenticated
-      window.location.href = "/login?redirect=pricing";
+      window.location.href = "/sign-in?redirect=pricing";
       return;
     }
 
