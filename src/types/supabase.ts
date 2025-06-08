@@ -104,11 +104,17 @@ export type Database = {
           full_name: string | null
           id: string
           image: string | null
+          latitude: number | null
+          location_city: string | null
+          location_country: string | null
+          location_state: string | null
+          longitude: number | null
           name: string | null
           subscription: string | null
           token_identifier: string
           updated_at: string | null
           user_id: string | null
+          zip_code: string | null
         }
         Insert: {
           avatar_url?: string | null
@@ -118,11 +124,17 @@ export type Database = {
           full_name?: string | null
           id: string
           image?: string | null
+          latitude?: number | null
+          location_city?: string | null
+          location_country?: string | null
+          location_state?: string | null
+          longitude?: number | null
           name?: string | null
           subscription?: string | null
           token_identifier: string
           updated_at?: string | null
           user_id?: string | null
+          zip_code?: string | null
         }
         Update: {
           avatar_url?: string | null
@@ -132,11 +144,17 @@ export type Database = {
           full_name?: string | null
           id?: string
           image?: string | null
+          latitude?: number | null
+          location_city?: string | null
+          location_country?: string | null
+          location_state?: string | null
+          longitude?: number | null
           name?: string | null
           subscription?: string | null
           token_identifier?: string
           updated_at?: string | null
           user_id?: string | null
+          zip_code?: string | null
         }
         Relationships: []
       }
