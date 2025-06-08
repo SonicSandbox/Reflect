@@ -556,6 +556,11 @@ export default function Dashboard() {
       setJournalText(cleanTranscription);
       setFollowUpQuestion(followUpQ);
 
+      console.log("Set journalText state to:", {
+        cleanTranscription: cleanTranscription,
+        cleanTranscriptionLength: cleanTranscription.length,
+      });
+
       // If we have a follow-up question, show it; otherwise complete
       if (followUpQ && followUpQ.trim()) {
         setCurrentStep("followUpQuestion");
@@ -569,6 +574,13 @@ export default function Dashboard() {
         console.log("About to save journal entry with clean transcription:", {
           cleanTranscription: cleanTranscription,
           cleanTranscriptionLength: cleanTranscription.length,
+        });
+        console.log("Calling saveJournalEntry with parameters:", {
+          text: cleanTranscription,
+          textType: typeof cleanTranscription,
+          textLength: cleanTranscription ? cleanTranscription.length : 0,
+          followUpQ: null,
+          followUpResp: null,
         });
         await saveJournalEntry(cleanTranscription, null, null);
         setCurrentStep("complete");
@@ -678,10 +690,37 @@ export default function Dashboard() {
 
     console.log("User found:", user.id);
 
-    // Validate that we have content to save
-    const cleanText = text ? text.trim() : "";
-
+    // Validate that we have content to save - fix the validation logic
     console.log("=== CLIENT TEXT VALIDATION ===");
+    console.log("Original text:", text);
+    console.log("Text type:", typeof text);
+    console.log(
+      "Text value check:",
+      text === null,
+      text === undefined,
+      text === "",
+    );
+
+    // More robust validation
+    if (text === null || text === undefined || typeof text !== "string") {
+      console.error("=== CLIENT VALIDATION ERROR ===");
+      console.error(
+        "Cannot save journal entry: text is null, undefined, or not a string",
+        {
+          originalText: text,
+          textType: typeof text,
+          isNull: text === null,
+          isUndefined: text === undefined,
+        },
+      );
+      alert(
+        "Cannot save journal entry: No content to save. Please try recording again.",
+      );
+      return;
+    }
+
+    const cleanText = text.trim();
+
     console.log(
       "Original text:",
       text ? `"${text.substring(0, 200)}..."` : "NULL/UNDEFINED",
@@ -692,15 +731,13 @@ export default function Dashboard() {
     );
     console.log("Text length:", text ? text.length : 0);
     console.log("Clean text length:", cleanText.length);
-    console.log("Text type:", typeof text);
 
-    if (!cleanText || cleanText === "") {
+    if (cleanText.length === 0) {
       console.error("=== CLIENT VALIDATION ERROR ===");
-      console.error("Cannot save journal entry: text is empty or null", {
+      console.error("Cannot save journal entry: text is empty after trimming", {
         originalText: text,
         cleanText: cleanText,
-        textType: typeof text,
-        textLength: text ? text.length : 0,
+        textLength: text.length,
         cleanTextLength: cleanText.length,
       });
       alert(
@@ -851,6 +888,16 @@ export default function Dashboard() {
   const processFollowUpAudio = async (audioBlob: Blob) => {
     setIsProcessing(true);
 
+    // Log the current state at the beginning of follow-up processing
+    console.log("=== FOLLOW-UP PROCESSING START ===");
+    console.log("Current journalText state:", {
+      journalText: journalText,
+      journalTextType: typeof journalText,
+      journalTextLength: journalText ? journalText.length : 0,
+      isEmpty: !journalText || journalText.trim().length === 0,
+    });
+    console.log("Current followUpQuestion:", followUpQuestion);
+
     try {
       // Create FormData to send the audio file
       const formData = new FormData();
@@ -887,11 +934,42 @@ export default function Dashboard() {
           result.message ||
           `HTTP error! status: ${response.status}`;
         setFollowUpResponse(`Error processing audio: ${errorMessage}`);
-        await saveJournalEntry(
-          journalText,
-          followUpQuestion,
-          `Error: ${errorMessage}`,
-        );
+
+        // Check journalText state again before error handling
+        console.log("=== ERROR HANDLER - JOURNAL TEXT CHECK ===");
+        console.log("journalText state in error handler:", {
+          journalText: journalText,
+          journalTextType: typeof journalText,
+          journalTextLength: journalText ? journalText.length : 0,
+          isEmpty: !journalText || journalText.trim().length === 0,
+        });
+
+        const currentJournalText = journalText || "";
+        console.log("Calling saveJournalEntry with error parameters:", {
+          text: currentJournalText,
+          textType: typeof currentJournalText,
+          textLength: currentJournalText ? currentJournalText.length : 0,
+          followUpQ: followUpQuestion,
+          followUpResp: `Error: ${errorMessage}`,
+          journalTextState: journalText,
+        });
+
+        if (currentJournalText && currentJournalText.trim().length > 0) {
+          await saveJournalEntry(
+            currentJournalText,
+            followUpQuestion,
+            `Error: ${errorMessage}`,
+          );
+        } else {
+          console.error("=== ERROR: EMPTY JOURNAL TEXT IN ERROR HANDLER ===", {
+            originalJournalText: journalText,
+            currentJournalText: currentJournalText,
+            followUpQuestion: followUpQuestion,
+          });
+          alert(
+            "Error: Cannot save journal entry because the initial response is missing. Please try recording again.",
+          );
+        }
         setCurrentStep("complete");
         return;
       }
@@ -946,25 +1024,101 @@ export default function Dashboard() {
 
       setFollowUpResponse(cleanFollowUpTranscription);
 
+      // Check journalText state before saving
+      console.log("=== FINAL SAVE - JOURNAL TEXT CHECK ===");
+      console.log("journalText state before final save:", {
+        journalText: journalText,
+        journalTextType: typeof journalText,
+        journalTextLength: journalText ? journalText.length : 0,
+        isEmpty: !journalText || journalText.trim().length === 0,
+        followUpQuestion: followUpQuestion,
+        cleanFollowUpTranscription: cleanFollowUpTranscription,
+      });
+
       // Save complete journal entry with follow-up
+      // Use the current journalText state, but add validation
+      const currentJournalText = journalText || "";
+      console.log("Calling saveJournalEntry with follow-up parameters:", {
+        text: currentJournalText,
+        textType: typeof currentJournalText,
+        textLength: currentJournalText ? currentJournalText.length : 0,
+        followUpQ: followUpQuestion,
+        followUpResp: cleanFollowUpTranscription,
+        journalTextState: journalText,
+      });
+
+      if (!currentJournalText || currentJournalText.trim().length === 0) {
+        console.error(
+          "=== ERROR: journalText is empty when trying to save follow-up response ===",
+          {
+            originalJournalText: journalText,
+            currentJournalText: currentJournalText,
+            followUpQuestion: followUpQuestion,
+            cleanFollowUpTranscription: cleanFollowUpTranscription,
+            stateSnapshot: {
+              currentStep: currentStep,
+              selectedScore: selectedScore,
+              currentQuestion: currentQuestion,
+            },
+          },
+        );
+        alert(
+          "Error: Initial journal text is missing. This might be due to a state management issue. Please try recording your journal entry again from the beginning.",
+        );
+        setCurrentStep("complete");
+        return;
+      }
+
       await saveJournalEntry(
-        journalText,
+        currentJournalText,
         followUpQuestion,
         cleanFollowUpTranscription,
       );
       setCurrentStep("complete");
     } catch (error) {
+      console.error("=== FOLLOW-UP PROCESSING CATCH ERROR ===");
       console.error("Error processing follow-up audio:", error);
+
+      // Check journalText state in catch block
+      console.log("journalText state in catch block:", {
+        journalText: journalText,
+        journalTextType: typeof journalText,
+        journalTextLength: journalText ? journalText.length : 0,
+        isEmpty: !journalText || journalText.trim().length === 0,
+      });
+
       let errorMessage = "Unknown error occurred";
       if (error instanceof Error) {
         errorMessage = error.message;
       }
       setFollowUpResponse(`Error processing audio: ${errorMessage}`);
-      await saveJournalEntry(
-        journalText,
-        followUpQuestion,
-        `Error: ${errorMessage}`,
-      );
+      const currentJournalText = journalText || "";
+      console.log("Calling saveJournalEntry with error parameters (2):", {
+        text: currentJournalText,
+        textType: typeof currentJournalText,
+        textLength: currentJournalText ? currentJournalText.length : 0,
+        followUpQ: followUpQuestion,
+        followUpResp: `Error: ${errorMessage}`,
+        journalTextState: journalText,
+      });
+
+      if (currentJournalText && currentJournalText.trim().length > 0) {
+        await saveJournalEntry(
+          currentJournalText,
+          followUpQuestion,
+          `Error: ${errorMessage}`,
+        );
+      } else {
+        console.error("=== ERROR: EMPTY JOURNAL TEXT IN CATCH HANDLER ===", {
+          originalJournalText: journalText,
+          currentJournalText: currentJournalText,
+          followUpQuestion: followUpQuestion,
+          error: errorMessage,
+        });
+        alert(
+          "Error: Cannot save journal entry because the initial response is missing. Please try recording again.",
+        );
+      }
       setCurrentStep("complete");
     } finally {
       setIsProcessing(false);
